@@ -119,6 +119,7 @@ def _axis_mapping(func, data, labels=None, figsize=(20,10), fontsize=30):
 def plot_history(history):
     '''
     Plots accuracy and loss from history object
+    from https://www.kaggle.com/danbrice/keras-plot-history-full-report-and-grid-search
     '''
     loss_list = [s for s in history.history.keys() if 'loss' in s and 'val' not in s]
     val_loss_list = [s for s in history.history.keys() if 'loss' in s and 'val' in s]
