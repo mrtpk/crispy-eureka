@@ -73,3 +73,9 @@ def process_kitti_img(path, func, is_training=True, gt=None):
         counter += 1
     assert counter == file_no
     return result
+
+def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
+    """ Scales an array of values from specified min, max range to scale_min-scale_max
+        Optionally specify the data type of the output
+    """
+    return (scale_min + (((a - min) / float(max - min)) * scale_max)).astype(dtype)
