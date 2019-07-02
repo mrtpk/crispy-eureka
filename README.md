@@ -16,3 +16,4 @@ Evaluating the effect of spatial resolution for road detection using Lidar point
 ICCV 2019, Oct 27th Seoul Korea : **July 26th, 2019**.
   - AUTONUE, 2nd Workshop on Autonomous Navigation in Unconstrained Environments, In Conjunction with ICCV 2019, November 02, 2019 : **July 25, 2019**
   - AUTONOMOUS DRIVING ICCV'19 Workshop, Seoul, Korea,  Aug. 9, 2019
+- ICRA 2020 Paris [link](https://www.icra2020.org/) Deadline : Call for Papers Opening SEPTEMBER 2019
