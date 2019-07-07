@@ -72,37 +72,23 @@ def get_features(points):
     '''
     Returns features of the point cloud as stacked grayscale images.
     Shape of the output is (400x200x6).
-    TODO : Before conducting the experiments, check the normalisation values.
     '''
     side_range=(-10, 10)
     fwd_range=(6, 46)
     res=.1
-    min_height = -2.73
-    max_height = 1.27
-    max_points_per_grid = 500
 
     # calculate the image dimensions
     img_width = int((side_range[1] - side_range[0])/res)
     img_height = int((fwd_range[1] - fwd_range[0])/res)
     number_of_grids = img_height * img_width
 
-
     x_lidar = points[:, 0]
     y_lidar = points[:, 1]
     z_lidar = points[:, 2]
     r_lidar = points[:, 3]
+
+    norm_z_lidar = z_lidar # assumed that the z values are normalised
     
-    # NORMALIZATION
-    # Normalise the elevation, reflectance, and count
-    # count will be normalised afterwards
-    # reflectance range [0.0 - 1.0] in KITTI(already normalised) or [0 - 255] from sensor output. 
-
-    # clip elevation values
-    clipped_z_lidar = np.clip(z_lidar, min_height, max_height)
-    # normalise elevation in range [0 - 1]
-    norm_z_lidar = (clipped_z_lidar - min_height) / (max_height - min_height)
-    # norm_z_lidar = clipped_z_lidar - min_height
-
     # MAPPING
     # Mappings from one point to grid 
     # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
@@ -151,8 +137,7 @@ def get_features(points):
     o_max_elevation.flat[unq_ids] = np.maximum.reduceat(val, m_idx)
     o_min_elevation.flat[unq_ids] = np.minimum.reduceat(val, m_idx)
 
-    # Normalise things
-    norm_binned_count = binned_count / max_points_per_grid
+    norm_binned_count = binned_count # normalise the output
     # reshape all other things
     o_count            = norm_binned_count.reshape(img_height, img_width)
     o_mean_reflectance = binned_mean_reflectance.reshape(img_height, img_width)
