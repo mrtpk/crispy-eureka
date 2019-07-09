@@ -1,0 +1,1 @@
+{"F1": 0.5775234344524913, "accuracy": 0.6919124999998711, "threshold": 0.4, "recall": 0.5566783288739126, "run_id": "2019_07_09_10_13", "name": "experiment0", "precision": 0.49357687675605433, "training_config": {"epochs": 3, "loss_function": "binary_crossentropy", "batch_size": 1, "learning_rate": 0.0001, "optimizer": "keras.optimizers.Adam"}, "dataset": "KITTI"}

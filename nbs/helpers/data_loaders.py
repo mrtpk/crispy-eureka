@@ -19,13 +19,12 @@ def create_dir_struct(path, name):
     experiment_dir = "{}/nbs/output/{}".format(path, name)
     tmp_dir = "{}/tmp/".format(experiment_dir)
     log_dir = "{}/log/".format(experiment_dir)
-    result_model_dir = "{}/result/model/".format(experiment_dir)
-    result_output_dir = "{}/result/output/".format(experiment_dir)
     os.makedirs(os.path.dirname(tmp_dir), exist_ok=True)
     os.makedirs(os.path.dirname(log_dir), exist_ok=True)
-    os.makedirs(os.path.dirname(result_model_dir), exist_ok=True)
-    os.makedirs(os.path.dirname(result_output_dir), exist_ok=True)
-    return experiment_dir, log_dir, tmp_dir, result_model_dir, result_output_dir
+
+    run_path = "{}/*run_id/".format(experiment_dir)
+    
+    return experiment_dir, log_dir, tmp_dir, run_path
 
 def remove_last_n(lst, n):
     '''
