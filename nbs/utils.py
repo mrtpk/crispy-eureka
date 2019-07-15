@@ -1,6 +1,9 @@
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from helpers import data_loaders as dls
 from helpers import pointcloud as pc
+from helpers.projection import Projection
+from helpers.normals import estimate_normals_from_spherical_img
+
 import numpy as np
 
 
@@ -87,7 +90,42 @@ def kitti_gt(img):
 
 # to add, get ground truth from lodnn dataset
 
-def _get_features(points):
+def _get_normals(points):
+    '''
+    Estimate surface normals on spherical image
+    '''
+    from skimage.morphology import dilation, square
+
+    # azimuthal resolution --> defines spherical image height
+    res_az = 100
+
+    # planar resolution --> defines spherical image width
+    res_planar = 300
+
+    # initializing projector
+    proj = Projection(proj_type='spherical', res_azimuthal=res_az, res_planar=res_planar)
+
+    # on spherical image we project points lenght
+    values = np.linalg.norm(points, axis=1)
+
+    # get spherical image
+    rho_img = proj.project_points_values(points, values, res_values=1, dtype=np.float)
+
+    # dilate spherical image to interpolate information where no points is projected
+    dil_rho = dilation(rho_img, square(3))
+
+    rho_img[rho_img==0] = dil_rho[rho_img==0]
+
+    # image that contains normals
+    normals = estimate_normals_from_spherical_img(rho_img, res_planar=res_planar, res_az=res_az, res_rho=1)
+
+    # project back normals to point cloud
+    pc_normals = proj.back_project(points, np.abs(normals), res_value=1, dtype=np.float)
+
+    return pc_normals
+
+
+def _get_features(points, add_geometrical_features=True):
     '''
     Returns features of the point cloud as stacked grayscale images.
     Shape of the output is (400x200x6).
@@ -106,8 +144,10 @@ def _get_features(points):
     z_lidar = points[:, 2]
     r_lidar = points[:, 3]
 
+
+
     norm_z_lidar = z_lidar # assumed that the z values are normalised
-    
+
     # MAPPING
     # Mappings from one point to grid 
     # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
@@ -128,6 +168,7 @@ def _get_features(points):
     binned_count = np.bincount(lidx, count_input, minlength = number_of_grids)
     # sum reflectance
     binned_reflectance =  np.bincount(lidx, r_lidar, minlength = number_of_grids)
+
 
     # sum elevation 
     binned_elevation = np.bincount(lidx, norm_z_lidar, minlength = number_of_grids)
@@ -162,10 +203,42 @@ def _get_features(points):
     o_mean_reflectance = binned_mean_reflectance.reshape(img_height, img_width)
     o_std_elevation    = binned_std_elevation.reshape(img_height, img_width)
 
-    out_feature_map = np.dstack([o_count, 
-                                 o_mean_reflectance, 
-                                 o_max_elevation, 
-                                 o_min_elevation, 
-                                 o_mean_elevation, 
-                                 o_std_elevation])
+    if add_geometrical_features:
+        # estimate normals
+        normals = _get_normals(points[:, :3])
+
+        nx_lidar = normals[:, 0]
+        ny_lidar = normals[:, 1]
+        nz_lidar = normals[:, 2]
+
+        # sum normals
+        binned_nx = np.bincount(lidx, nx_lidar, minlength=number_of_grids)
+        binned_ny = np.bincount(lidx, ny_lidar, minlength=number_of_grids)
+        binned_nz = np.bincount(lidx, nz_lidar, minlength=number_of_grids)
+
+        binned_mean_nx = np.divide(binned_nx, binned_count, out=np.zeros_like(binned_nx), where=binned_count != 0.0)
+        binned_mean_ny = np.divide(binned_ny, binned_count, out=np.zeros_like(binned_ny), where=binned_count != 0.0)
+        binned_mean_nz = np.divide(binned_nz, binned_count, out=np.zeros_like(binned_nz), where=binned_count != 0.0)
+
+        o_mean_nx = binned_mean_nx.reshape(img_height, img_width)
+        o_mean_ny = binned_mean_ny.reshape(img_height, img_width)
+        o_mean_nz = binned_mean_nz.reshape(img_height, img_width)
+
+        out_feature_map = np.dstack([o_count,
+                                     o_mean_reflectance,
+                                     o_max_elevation,
+                                     o_min_elevation,
+                                     o_mean_elevation,
+                                     o_std_elevation,
+                                     o_mean_nx,
+                                     o_mean_ny,
+                                     o_mean_nz])
+
+    else:
+        out_feature_map = np.dstack([o_count,
+                                     o_mean_reflectance,
+                                     o_max_elevation,
+                                     o_min_elevation,
+                                     o_mean_elevation,
+                                     o_std_elevation])
     return out_feature_map
