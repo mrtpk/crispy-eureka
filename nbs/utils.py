@@ -2,7 +2,12 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from helpers import data_loaders as dls
 from helpers import pointcloud as pc
 import numpy as np
+import copy
+import pathlib
+import datetime
 
+def get_unique_id():
+    return datetime.datetime.today().strftime('%Y_%m_%d_%H_%M')
 
 class KittiPointCloudClass:
     """ 
@@ -13,6 +18,7 @@ class KittiPointCloudClass:
         
         self.train_set = train_set
         self.valid_set = valid_set
+        # self.test_set = test_set
 
         z_vals = dls.process_pc(self.train_set["pc"] + self.valid_set["pc"], lambda x: x[:, 2])
         z_vals = np.concatenate(z_vals)
@@ -46,6 +52,8 @@ class KittiPointCloudClass:
         f = _get_features(points)
         f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
         return f
+
+
 
 def get_metrics_count(pred, gt):
     '''
