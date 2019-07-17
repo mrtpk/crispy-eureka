@@ -1,13 +1,13 @@
 import keras
 import numpy as np
 
-def get_model():
+def get_model(shape=(400,200, 6)):
     '''
     Returns LoDNN model.
     Note: Instead of max-unpooling layer, deconvolution is used[see d_layer_01].
     '''
     # encoder
-    e_layer_01 = keras.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='elu', input_shape=(400, 200, 6))
+    e_layer_01 = keras.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='elu', input_shape=shape)
     e_layer_02 = keras.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='elu')
 
     e_layer_03 = keras.layers.MaxPooling2D(pool_size=(2, 2), strides=2, padding='same')
