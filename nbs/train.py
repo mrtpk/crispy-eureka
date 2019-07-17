@@ -167,8 +167,8 @@ if __name__ == "__main__":
     run_id = utils.get_unique_id()
     path = create_run_dir(_RUN_PATH, run_id)
     
-    # model = lodnn.get_model()
-    model = unet.get_model()
+    model = lodnn.get_model()
+    # model = unet.get_model()
     model.summary()
     callbacks = get_basic_callbacks(path)
     
