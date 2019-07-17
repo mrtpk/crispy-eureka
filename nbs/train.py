@@ -1,24 +1,24 @@
 #%matplotlib inline
 import matplotlib.pyplot as plt
 from time import time
-from tqdm import tqdm
+#from tqdm import tqdm
 
 import os
 import numpy as np
-import tensorflow as tf
+#import tensorflow as tf
 import keras
-import sklearn.model_selection as sk
+#import sklearn.model_selection as sk
 
-from PIL import Image as IM
+#from PIL import Image as IM
 from keras.callbacks import TensorBoard
-import cv2
+#import cv2
 import json
 
-from glob import glob
+#from glob import glob
 
 ## import helpers
 from helpers import data_loaders as dls
-from helpers import pointcloud as pc
+#from helpers import pointcloud as pc
 from helpers.viz import plot, plot_history
 from helpers.logger import Logger
 import utils
@@ -112,7 +112,7 @@ def dataload_static(limit_index = 3):
     f_test = dls.process_pc(test_set["pc"][0:limit_index], lambda x: KPC.get_features(x))
     gt_train = dls.process_img(train_set["gt_bev"][0:limit_index], func=lambda x: utils.kitti_gt(x))
     gt_valid = dls.process_img(valid_set["gt_bev"][0:limit_index], func=lambda x: utils.kitti_gt(x))
-    gt_test = dls.process_img(train_set["gt_bev"][0:limit_index], func=lambda x: utils.kitti_gt(x))
+    gt_test = dls.process_img(test_set["gt_bev"][0:limit_index], func=lambda x: utils.kitti_gt(x))
     return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(gt_test)
 
 def dataload_gen(pathsX, pathsY):
@@ -137,7 +137,7 @@ if __name__ == "__main__":
                                      valid_set=valid_set)
     
     #limit_index = -1 for all dataset while i > 0 for smaller #samples
-    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = dataload_static(limit_index = 30)
+    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = dataload_static(limit_index = -1)
 
     print(f_test.shape, gt_test.shape)
     print('===============')
@@ -146,8 +146,8 @@ if __name__ == "__main__":
     training_config = {
         "loss_function" : "binary_crossentropy",
         "learning_rate" : 1e-4,
-        "batch_size"    : 2,
-        "epochs"        : 1,
+        "batch_size"    : 3,
+        "epochs"        : 10,
         "optimizer"     : "keras.optimizers.Adam"
     }
 
