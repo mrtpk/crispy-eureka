@@ -106,6 +106,7 @@ venv.bak/
 # dataset related
 # dataset/
 
+<<<<<<< HEAD
 
 # Created by https://www.gitignore.io/api/pycharm+all
 # Edit at https://www.gitignore.io/?templates=pycharm+all
@@ -197,3 +198,6 @@ modules.xml
 .idea/sonarlint
 
 # End of https://www.gitignore.io/api/pycharm+all
+=======
+#Results
+>>>>>>> pipeline_exp0

@@ -156,4 +156,4 @@ def plot_history(history):
     plt.xlabel('Epochs')
     plt.ylabel('Accuracy')
     plt.legend()
-    plt.show()
+    # plt.show()

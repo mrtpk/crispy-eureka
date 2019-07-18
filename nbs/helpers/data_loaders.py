@@ -45,6 +45,7 @@ def get_dataset(path, is_training=True):
     calibration files, and point clouds.
     '''
     if is_training is True:
+        #what is the utlity of these cat variables
         cat_um = (0, 95, 95)
         cat_umm = (95, 191, 96)
         cat_uu = (191, 289, 98)
@@ -59,7 +60,8 @@ def get_dataset(path, is_training=True):
         
         img_paths = sorted(glob(path + img_path))      
         sample_names = [x.split('/')[-1].split('.')[0] for x in img_paths]
-        um, umm, uu = sample_names[0: 95], sample_names[95:191], sample_names[191:289]
+        um, umm, uu = sample_names[0: 95], sample_names[95:191], sample_names[191:289] 
+        #how are train, test and valid sets created
         test, valid, train = [], [], []
         for i in [test, valid]:
             um, _i = remove_last_n(um, 10)
@@ -68,7 +70,7 @@ def get_dataset(path, is_training=True):
             i.extend(_i)
             uu, _i = remove_last_n(uu, 10)
             i.extend(_i)
-        train = um + umm + uu
+        train = um + umm + uu #what is the utility of this variable ?
 
         testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
         
@@ -81,7 +83,7 @@ def get_dataset(path, is_training=True):
                 _dataset['gt_bev'].append(path + bev_gt_path.replace('*', sample_name.replace("_", "_road_")))
                 _dataset['lodnn_gt'].append(path + lodnn_path.replace('*', sample_name))
                 _dataset['pc'].append(path + pc_path.replace('*', sample_name))
-                
+        
         return trainset, validset, testset
     else:
         # category
