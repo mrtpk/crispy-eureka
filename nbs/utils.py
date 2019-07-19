@@ -16,11 +16,12 @@ class KittiPointCloudClass:
     Quick hack, need a good pointcloud structure to perform feature extraction, truncation etc
     
     """
-    def __init__(self, train_set, valid_set, add_geometrical_features):
+    def __init__(self, train_set, valid_set, add_geometrical_features, subsample):
         
         self.train_set = train_set
         self.valid_set = valid_set
         self.add_geometrical_features=add_geometrical_features
+        self.subsample = subsample
 
         z_vals = dls.process_pc(self.train_set["pc"] + self.valid_set["pc"], lambda x: x[:, 2])
         z_vals = np.concatenate(z_vals)
@@ -40,11 +41,32 @@ class KittiPointCloudClass:
         self.COUNT_MIN, self.COUNT_MAX = 0, np.max(f_count)
         print("Count varies from {} to {}".format(self.COUNT_MIN, self.COUNT_MAX))
 
+    def subsample_16(self, points):
+
+        # initialize projector
+        proj = Projection(proj_type='spherical', res_azimuthal=100, res_planar=300)
+        # project point cloud to spherical image
+        sph_img = proj.project_points_values(points[:,:3], np.ones(len(points)), res_values=1, dtype=np.uint8)
+
+        # selecting only odd rows of the image
+        odd_rows = np.arange(1, sph_img.shape[0], 2)
+        # initialize subsampled image
+        sub_img = sph_img.copy()
+        # eliminate points in odd rows
+        sub_img[odd_rows] = 0
+        # project back points to subsample
+        sub_points = proj.back_project(points[:,:3], sub_img, res_value=1, dtype=np.uint8)
+        # return subsampled points
+        return points[sub_points == 1]
     
     def get_features(self, points):
         """
         Remove points outisde y \in [-10, 10] and x \in [6, 46]
         """
+
+        if self.subsample:
+            points = self.subsample_16(points)
+
         points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
         z = points[:, 2]
         z = (z - self.z_min)/(self.z_max - self.z_min)
@@ -130,8 +152,12 @@ class KittiPointCloudClass:
         o_std_elevation    = binned_std_elevation.reshape(img_height, img_width)
 
         if self.add_geometrical_features:
+            if self.subsample:
+                res_az = 50
+            else:
+                res_az = 100
             # estimate normals
-            normals = _get_normals(points[:, :3])
+            normals = _get_normals(points[:, :3], res_az=res_az, res_planar=300)
 
             nx_lidar = normals[:, 0]
             ny_lidar = normals[:, 1]
@@ -208,17 +234,19 @@ def kitti_gt(img):
 
 # to add, get ground truth from lodnn dataset
 
-def _get_normals(points):
+def _get_normals(points, res_az=100, res_planar=300):
     '''
     Estimate surface normals on spherical image
-    '''
-    from skimage.morphology import dilation, square
 
     # azimuthal resolution --> defines spherical image height
     res_az = 100
 
     # planar resolution --> defines spherical image width
     res_planar = 300
+
+    '''
+    from skimage.morphology import dilation, square
+
 
     # initializing projector
     proj = Projection(proj_type='spherical', res_azimuthal=res_az, res_planar=res_planar)
