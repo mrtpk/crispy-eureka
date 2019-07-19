@@ -111,15 +111,15 @@ class SphericalProjector(AbstractProjector):
             # azimuthal angle
             azimuthal = np.arccos(p[2] / rho)
         else:
-            # if p is a vector of points instead of a single point
-            # norm of each point in the point list
-            rho = np.linalg.norm(p, axis=1)
             # vector of planar angles
             planar = np.arctan2(p[:, 1], p[:, 0]) + np.pi
 
-            azimuthal = np.zeros(len(rho))
+            # norm of each point in the point list
+            rho = np.sqrt(np.square(p[:, 0]) + np.square(p[:, 1]) + np.square(p[:, 1]))
 
-            # vector of azimuthal angles
+            azimuthal = np.zeros(len(rho))
+            #
+            # # vector of azimuthal angles
             azimuthal[rho != 0] = np.arccos(p[rho != 0, 2] / rho[rho != 0])
 
             # fix for the trivial case of x,y,z = (0,0,0)
