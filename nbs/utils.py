@@ -8,6 +8,7 @@ from helpers import data_loaders as dls
 from helpers import pointcloud as pc
 from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
+from helpers.calibration import get_lidar_in_image_fov
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import keras
 from keras.callbacks import TensorBoard
@@ -119,6 +120,22 @@ class KittiPointCloudClass:
         sub_points = proj.back_project(points[:,:3], sub_img, res_value=1, dtype=np.uint8)
         # return subsampled points
         return points[sub_points == 1]
+
+
+    def get_RGB(self, points, img, calib):
+        '''
+        Function that  project point cloud on fron view image and retrieve RGB information
+        '''
+        height, width = img.shape[:2]
+
+        imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
+                                                                  return_more=True)
+
+        # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
+        velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
+        RGB = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
+
+        return RGB
     
     def get_dataset(self, limit_index = 3):
         """ NOTE: change limit_index to -1 to train on the whole dataset """
