@@ -43,7 +43,7 @@ if __name__ == "__main__":
         "loss_function" : "binary_crossentropy",
         "learning_rate" : 1e-4,
         "batch_size"    : 3,
-        "epochs"        : 5,
+        "epochs"        : 100,
         "optimizer"     : "keras.optimizers.Adam"
     }
 
