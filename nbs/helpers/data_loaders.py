@@ -12,6 +12,7 @@ import os
 import copy
 from tqdm import tqdm
 import multiprocessing as mp
+from .calibration import Calibration
 
 def create_dir_struct(path, name):
     '''
@@ -145,6 +146,18 @@ def process_img(paths, func):
         img = get_image(path, is_color=True, rgb=False)
         result.append(func(img))
         counter += 1
+    return result
+
+def process_calib(paths):
+    '''
+    Initialize calibrations at paths
+    '''
+    result = []
+
+    for path in paths:
+        calib = Calibration(path)
+        result.append(calib)
+
     return result
 
 def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
