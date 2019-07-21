@@ -1,48 +1,109 @@
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import os
+from time import time
+import numpy as np
+#import copy
+#import pathlib
+import datetime
 from helpers import data_loaders as dls
 from helpers import pointcloud as pc
 from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
-import numpy as np
-import copy
-import pathlib
-import datetime
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import keras
+from keras.callbacks import TensorBoard
+from tqdm import tqdm
+import multiprocessing as mp
+
+#from keras.callbacks import ModelCheckpoint, LearningRateScheduler
 
 def get_unique_id():
     return datetime.datetime.today().strftime('%Y_%m_%d_%H_%M')
 
+def create_run_dir(path, run_id):
+    path = path.replace("*run_id", str(run_id))
+    model_dir = "{}/model/".format(path)
+    output_dir = "{}/output/".format(path)
+    log_dir = "{}/log/".format(path)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    return path
+
+def get_basic_callbacks(path):
+    # tensorboard
+    # to visualise `tensorboard --logdir="./path_to_log_dir" --port 6006`
+    log_path = "{}/log/".format(path)
+    tensorboard = TensorBoard(log_dir="{}/{}".format(log_path, time()))
+    # save best model
+    best_model_path = "{}/model/best_model.h5".format(path) #? .hd5
+    save_the_best = keras.callbacks.ModelCheckpoint(filepath=best_model_path,
+                                                    verbose=1, save_best_only=True)
+    # save models after few epochs
+    epoch_save_path = "{}/model/*.h5".format(path)
+    save_after_epoch = keras.callbacks.ModelCheckpoint(filepath=epoch_save_path.replace('*', 'e{epoch:02d}-val_acc{val_acc:.2f}'),
+                                                       monitor='val_acc', verbose=1, period = 1)
+    return [tensorboard, save_the_best, save_after_epoch]
+
+
+def apply_argmax(res):
+    return np.argmax(res, axis=2)
+
+def get_z(points):
+#    return points[:,2].reshape(-1,1)
+    return np.array([np.min(points[:,2]), np.max(points[:,2])])
+
+def get_first_chan(points):
+    return points[:,:,0]
+
+def measure_perf(path, all_pred, all_gt):
+    result_path = "{}/output/*".format(path)
+    os.makedirs(os.path.dirname(result_path), exist_ok=True)    
+    F1, P, R, ACC = [], [], [], []
+    FN, FP, TP, TN = [], [], [], []
+#    counter = 0
+    for i in range(all_pred.shape[0]):
+        _f, _gt = all_pred[i], all_gt[i]
+        p_road = apply_argmax(_f)       
+        # get metrics
+        gt_road = _gt[:, :, 0]
+        fn, fp, tp, tn = get_metrics_count(pred=p_road, gt=gt_road)
+        f1, recall, precision, acc = get_metrics(gt=gt_road, pred=p_road)
+        F1.append(f1)
+        P.append(precision)
+        R.append(recall)
+        ACC.append(acc)
+        TP.append(tp)
+        FP.append(fp)
+        TN.append(tn)
+        FN.append(fn)
+        
+    eps = np.finfo(np.float32).eps        
+    _acc = (sum(TP)+sum(TN))/(sum(TP)+sum(FP)+sum(TN)+sum(FN) + eps)
+    _recall = sum(TP)/(sum(TP) + sum(FN)+eps)
+    _precision = sum(TP)/(sum(TP) + sum(FP)+eps)
+    _f1 = 2*((precision * recall)/(precision + recall))    
+    return {
+           "accuracy" : _acc,
+           "recall" : _recall,
+           "precision" : _precision,
+           "F1" : _f1
+           }
+    
 class KittiPointCloudClass:
     """ 
-    Quick hack, need a good pointcloud structure to perform feature extraction, truncation etc
-    
+    Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
-    def __init__(self, train_set, valid_set, add_geometrical_features, subsample):
-        
-        self.train_set = train_set
-        self.valid_set = valid_set
-        self.add_geometrical_features=add_geometrical_features
-        self.subsample = subsample
-
-        z_vals = dls.process_pc(self.train_set["pc"] + self.valid_set["pc"], lambda x: x[:, 2])
-        z_vals = np.concatenate(z_vals)
-        self.z_min, self.z_max = np.min(z_vals), np.max(z_vals)
-        print("Height ranges from {} to {}".format(self.z_min, self.z_max))
-        
+    def __init__(self, dataset_path, add_geometrical_features, subsample):
+        # get dataset
+        self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
+        self.add_geometrical_features=add_geometrical_features #Flag
+        self.subsample = subsample #Flag
         self.side_range=(-10, 10) #this is fixed here for KITTI
         self.fwd_range=(6, 46) #this is fixed here for KITTI
         self.res=.1
-        """
-        Update with maximum points found within a cell to be used for normalization later
-        """
-        _filter = lambda x: pc.filter_points(x, side_range=self.side_range, fwd_range=self.fwd_range)
-        f_count = dls.process_pc(self.train_set["pc"] + self.valid_set["pc"],
-                       lambda x: self._get_features(_filter(x))[:,:,0])
-        f_count = np.concatenate(f_count)
-        self.COUNT_MIN, self.COUNT_MAX = 0, np.max(f_count)
-        print("Count varies from {} to {}".format(self.COUNT_MIN, self.COUNT_MAX))
+        
 
     def subsample_16(self, points):
-
         # initialize projector
         proj = Projection(proj_type='spherical', res_azimuthal=100, res_planar=300)
         # project point cloud to spherical image
@@ -59,14 +120,53 @@ class KittiPointCloudClass:
         # return subsampled points
         return points[sub_points == 1]
     
+    def get_dataset(self, limit_index = 3):
+        """ NOTE: change limit_index to -1 to train on the whole dataset """
+        print('Reading cloud')
+        f_train = dls.load_pc(self.train_set["pc"][0:limit_index])
+        f_valid = dls.load_pc(self.valid_set["pc"][0:limit_index])
+        f_test = dls.load_pc(self.test_set["pc"][0:limit_index])
+        #Update min max z
+        z_vals = dls.process_list(f_train + f_valid, get_z)
+        z_vals = np.concatenate([z_vals])
+        print(z_vals.shape)
+        self.z_min, self.z_max = np.min(z_vals[:,0]), np.max(z_vals[:,1])
+        print("Height ranges from {} to {}".format(self.z_min, self.z_max))
+        
+        if self.subsample:
+            print('Read and Subsample cloud')
+            t = time()
+            f_train = dls.process_list(f_train, self.subsample_16)
+            f_valid = dls.process_list(f_valid, self.subsample_16)
+            f_test = dls.process_list(f_test, self.subsample_16)            
+            print('Evaluated in : '+repr(time()-t))
+        #Update with maximum points found within a cell to be used for normalization later
+        print('Evaluating count')
+        self.COUNT_MIN = 0 
+        self.COUNT_MAX = []
+        for _f in f_train+f_test:
+            _filtered = pc.filter_points(_f, side_range=self.side_range, 
+                                         fwd_range=self.fwd_range)
+            f_count = self._get_count_features(_filtered)
+            self.COUNT_MAX.append(int(np.max(f_count)))
+        self.COUNT_MAX = max(self.COUNT_MAX)
+        print("Count varies from {} to {}".format(self.COUNT_MIN, self.COUNT_MAX))    
+            
+        print('Extracting features')
+        t = time()
+        f_train = dls.process_list(f_train, self.get_features)
+        f_valid = dls.process_list(f_valid, self.get_features)
+        f_test = dls.process_list(f_test, self.get_features)
+        print('Evaluated in : '+repr(time()-t))
+        gt_train = dls.process_img(self.train_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+        gt_valid = dls.process_img(self.valid_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+        gt_test = dls.process_img(self.test_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+        return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(gt_test)
+
     def get_features(self, points):
         """
         Remove points outisde y \in [-10, 10] and x \in [6, 46]
         """
-
-        if self.subsample:
-            points = self.subsample_16(points)
-
         points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
         z = points[:, 2]
         z = (z - self.z_min)/(self.z_max - self.z_min)
@@ -75,19 +175,62 @@ class KittiPointCloudClass:
         f = self._get_features(points)
         f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
         return f
+    
+    def _get_count_features(self, points):
+        '''
+        Returns features of the point cloud as stacked grayscale images.
+        Shape of the output is (400x200x6).
+        '''
+#        side_range=(-10, 10)
+#        fwd_range=(6, 46)
+#        res=.1
 
+        # calculate the image dimensions
+        img_width = int((self.side_range[1] - self.side_range[0])/self.res)
+        img_height = int((self.fwd_range[1] - self.fwd_range[0])/self.res)
+        number_of_grids = img_height * img_width
+
+        x_lidar = points[:, 0]
+        y_lidar = points[:, 1]
+        z_lidar = points[:, 2]
+
+        norm_z_lidar = z_lidar # assumed that the z values are normalised
+        
+        # MAPPING
+        # Mappings from one point to grid 
+        # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
+        x_img_mapping = (-y_lidar/self.res).astype(np.int32) # x axis is -y in LIDAR
+        y_img_mapping = (x_lidar/self.res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
+
+        # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
+        # floor used to prevent issues with -ve vals rounding upwards
+        x_img_mapping -= int(np.floor(self.side_range[0]/self.res))
+        y_img_mapping -= int(np.floor(self.fwd_range[0]/self.res))
+
+        # Linerize the mappings to 1D
+        lidx = ((-y_img_mapping) % img_height) * img_width + x_img_mapping
+
+        # Feature extraction
+        # count of points per grid
+        count_input = np.ones_like(norm_z_lidar)
+        binned_count = np.bincount(lidx, count_input, minlength = number_of_grids)        
+        norm_binned_count = binned_count # normalise the output
+        # reshape all other things
+        o_count            = norm_binned_count.reshape(img_height, img_width)
+        return o_count
+    
     def _get_features(self,points):
         '''
         Returns features of the point cloud as stacked grayscale images.
         Shape of the output is (400x200x6).
         '''
-        side_range=(-10, 10)
-        fwd_range=(6, 46)
-        res=.1
+#        side_range=(-10, 10)
+#        fwd_range=(6, 46)
+#        res=.1
 
         # calculate the image dimensions
-        img_width = int((side_range[1] - side_range[0])/res)
-        img_height = int((fwd_range[1] - fwd_range[0])/res)
+        img_width = int((self.side_range[1] - self.side_range[0])/self.res)
+        img_height = int((self.fwd_range[1] - self.fwd_range[0])/self.res)
         number_of_grids = img_height * img_width
 
         x_lidar = points[:, 0]
@@ -100,13 +243,13 @@ class KittiPointCloudClass:
         # MAPPING
         # Mappings from one point to grid 
         # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
-        x_img_mapping = (-y_lidar/res).astype(np.int32) # x axis is -y in LIDAR
-        y_img_mapping = (x_lidar/res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
+        x_img_mapping = (-y_lidar/self.res).astype(np.int32) # x axis is -y in LIDAR
+        y_img_mapping = (x_lidar/self.res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
 
         # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
         # floor used to prevent issues with -ve vals rounding upwards
-        x_img_mapping -= int(np.floor(side_range[0]/res))
-        y_img_mapping -= int(np.floor(fwd_range[0]/res))
+        x_img_mapping -= int(np.floor(self.side_range[0]/self.res))
+        y_img_mapping -= int(np.floor(self.fwd_range[0]/self.res))
 
         # Linerize the mappings to 1D
         lidx = ((-y_img_mapping) % img_height) * img_width + x_img_mapping

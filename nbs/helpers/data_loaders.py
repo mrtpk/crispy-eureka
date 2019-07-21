@@ -10,6 +10,8 @@ import cv2
 from glob import glob
 import os
 import copy
+from tqdm import tqdm
+import multiprocessing as mp
 
 def create_dir_struct(path, name):
     '''
@@ -112,16 +114,25 @@ def get_image(path, is_color=True, rgb=False):
         return img
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-def process_pc(paths, func):
+def process_list(pc_list, func):
+    '''
+    Process point cloud from KITTI dataset using given function
+    '''
+    nCPU = mp.cpu_count()
+    print('nCPUs = ' + repr(nCPU))
+    pool = mp.Pool(processes=nCPU)
+    result = pool.map(func, [pc for pc in pc_list]) 
+    pool.close()
+    return result
+
+def load_pc(paths):
     '''
     Process point cloud from KITTI dataset using given function
     '''
     result = []
-    counter = 0
-    for path in paths:
+    for path in tqdm(paths):
         pc = load_bin_file((path))
-        result.append(func(pc))
-        counter += 1
+        result.append(pc)
     return result
 
 def process_img(paths, func):
