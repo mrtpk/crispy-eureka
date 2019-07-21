@@ -1,4 +1,5 @@
 import os
+import cv2
 from time import time
 import numpy as np
 #import copy
@@ -121,6 +122,53 @@ class KittiPointCloudClass:
         # return subsampled points
         return points[sub_points == 1]
 
+    def subsample(self, points, sub_ratio=2):
+        '''
+        Return sub sampled point cloud
+        '''
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+        aux_sum = np.sqrt(np.square(x) + np.square(y))
+        # azimuthal angles
+        phis = np.arctan2(z, aux_sum)
+        # max and min values of the azimuthal angles
+        phi_center_max, phi_center_min = phis.max() - (0.2 / 180.0 * np.pi), phis.min() + (0.2 / 180.0 * np.pi)
+
+        # angle of corresponding to inclination of layers
+        phi_centers = np.linspace(phi_center_min, phi_center_max, 64)
+
+        from sklearn.neighbors import NearestNeighbors
+
+        nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(phi_centers.reshape(-1, 1))
+
+        # for each azimuthal angle we compute its nearest neighbors in the phi_centers vector
+        # in this way at each points we associate a layer of the velodyne
+        _, ind = nbrs.kneighbors(phis.reshape(-1, 1))
+
+        ind = ind.reshape(-1)
+
+        # sampling only points with even id
+        return points[ind % sub_ratio == 0]
+
+    def _project_points_on_img(self, points, img, calib):
+
+        '''
+        Function that  project point cloud on fron view image and retrieve RGB information
+        '''
+        height, width = img.shape[:2]
+
+        imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
+                                                                  return_more=True)
+
+        # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
+        velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
+
+        points_to_pxls = np.ones((len(points), 2), dtype=int)
+
+        points_to_pxls[fov_inds] = velo_to_pxls[:, [1, 0]]
+
+        return points_to_pxls
 
     def get_RGB(self, points, img, calib):
         '''
@@ -133,10 +181,64 @@ class KittiPointCloudClass:
 
         # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
         velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
-        RGB = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
+
+        # for each point in FOV of the image we retrieve the value of the pixel corresponding to the point
+        back_RGB = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
+
+        # initialize RGB feature vector
+        RGB = np.zeros((len(points), 3))
+
+        # for points in the FOV we assign RGB values
+        RGB[fov_inds] = back_RGB
 
         return RGB
-    
+
+    def get_HOG(self, points, img, calib):
+        '''
+        A basic function that compute HOG features on the front image
+        '''
+        points_to_pxls = self._project_points_on_img(points, img, calib)
+
+
+        winSize = (64, 64)
+        blockSize = (16, 16)
+        blockStride = (8, 8)
+        cellSize = (8, 8)
+        nbins = 9
+        derivAperture = 1
+        winSigma = 4.
+        histogramNormType = 0
+        L2HysThreshold = 2.0000000000000001e-01
+        gammaCorrection = 0
+        nlevels = 64
+
+        # todo number of features is hard coded... need to parametrize it
+        num_features = nbins * (4 + 6 * 4 + 6 * 6)
+        hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins, derivAperture, winSigma,
+                                histogramNormType, L2HysThreshold, gammaCorrection, nlevels)
+        # compute(img[, winStride[, padding[, locations]]]) -> descriptors
+        winStride = (8, 8)
+        padding = (8, 8)
+
+        # getting padded img
+        nr, nc = img.shape[:2]
+        pad_img = np.zeros((nr + 8, nc + 8, 3), dtype=img.dtype)
+        for i in range(3):
+            pad_img[:, :, i] = np.pad(img[:, :, i], (4, 4), 'constant', constant_values=(0, 0))
+
+        # compute hog features
+        hog_features = np.zeros((len(points), num_features))
+
+        idx = points_to_pxls[:, 0] >= 0  # getting idx of points projected on img
+        # retrieve location for each point
+        locations = tuple([tuple(x) for x in (points_to_pxls[idx] + 4).tolist()])
+        # compute histogram
+        hist = hog.compute(pad_img, winStride, padding, locations)
+        hist = hist.reshape(-1, num_features)
+        hog_features[idx] = hist
+
+        return hog_features
+
     def get_dataset(self, limit_index = 3):
         """ NOTE: change limit_index to -1 to train on the whole dataset """
         print('Reading cloud')
