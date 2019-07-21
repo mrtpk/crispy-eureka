@@ -11,6 +11,7 @@ from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
 from helpers.calibration import get_lidar_in_image_fov
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import average_precision_score
 import keras
 from keras.callbacks import TensorBoard
 from tqdm import tqdm
@@ -62,7 +63,7 @@ def measure_perf(path, all_pred, all_gt):
     os.makedirs(os.path.dirname(result_path), exist_ok=True)    
     F1, P, R, ACC = [], [], [], []
     FN, FP, TP, TN = [], [], [], []
-#    counter = 0
+    AP = []
     for i in range(all_pred.shape[0]):
         _f, _gt = all_pred[i], all_gt[i]
         p_road = apply_argmax(_f)       
@@ -70,6 +71,8 @@ def measure_perf(path, all_pred, all_gt):
         gt_road = _gt[:, :, 0]
         fn, fp, tp, tn = get_metrics_count(pred=p_road, gt=gt_road)
         f1, recall, precision, acc = get_metrics(gt=gt_road, pred=p_road)
+        ap = average_precision_score(gt_road, p_road)
+        AP.append(ap)
         F1.append(f1)
         P.append(precision)
         R.append(recall)
