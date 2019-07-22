@@ -251,9 +251,9 @@ class KittiPointCloudClass:
         cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
 
         print('Reading camera images')
-        cam_img_train = dls.process_img(self.train_set["imgs"][0:limit_index], lambda x: x)
-        cam_img_valid = dls.process_img(self.valid_set["imgs"][0:limit_index], lambda x: x)
-        cam_img_test = dls.process_img(self.test_set["imgs"][0:limit_index], lambda x: x)
+        cam_img_train = dls.load_img(self.train_set["imgs"][0:limit_index])
+        cam_img_valid = dls.load_img(self.valid_set["imgs"][0:limit_index])
+        cam_img_test = dls.load_img(self.test_set["imgs"][0:limit_index])
 
         #Update min max z
         z_vals = dls.process_list(f_train + f_valid, get_z)

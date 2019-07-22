@@ -10,33 +10,64 @@ import dl_models
 import keras #this is required
 from keras.preprocessing.image import ImageDataGenerator
 
-def dataload_gen(pathsX, pathsY):
-    for pathpc, pathimg in pathsX, pathsY:
-        pc = dls.load_bin_file((pathpc))
-        X = KPC.get_features(pc)
-        img = dls.get_image(pathimg, is_color=True, rgb=False)
-        Y = utils.kitti_gt(img)
-        yield X, Y
+def test_all():
+    """ 
+    Test simple features, geomtric features with and without subsampling at 16, 32, 64 if possible
+    """
+    all_results = {}
+    test_name = {}
+    prefix = 'Classical_'
+    for add_geometrical_features, g in zip([True, False], ['Geometric_', '']):
+        for subsample_flag, s in zip([True, False], ['Subsampled_','']):
+            for compute_HOG, h in zip([True, False], ['HOG_','']): #change one of them to true when testing all
+                key = (add_geometrical_features, subsample_flag, compute_HOG)
+                test_name[key] = prefix+g+s+h
+                print(test_name[key])
+                all_results[key] = test_road_segmentation(add_geometrical_features=add_geometrical_features,
+                                   subsample_flag =subsample_flag,
+                                   compute_HOG = compute_HOG, 
+                                   test_name = test_name[key])
+    return all_results
 
-if __name__ == "__main__":
+def get_KPC_setup(add_geometrical_features = True, 
+                 subsample_flag = True,
+                 compute_HOG = False):
     PATH = '../' # path of the repo.
     _NAME = 'experiment0' # name of experiment
     # It is better to create a folder with runid in the experiment folder
     _EXP, _LOG, _TMP, _RUN_PATH = dls.create_dir_struct(PATH, _NAME)
     logger = Logger('EXP0', _LOG + 'experiment0.log')
     logger.debug('Logger EXP0 int')
-
-    add_geometrical_features = True #add geometrical features flag
-    subsample_flag = True
-    compute_HOG = False
+    #paths
+    run_id = utils.get_unique_id()
+    path = utils.create_run_dir(_RUN_PATH, run_id)
+    callbacks = utils.get_basic_callbacks(path)
+    
     #create dataclass
     KPC = utils.KittiPointCloudClass(dataset_path=PATH, 
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG)
-    
+    # number of channels in the images
+    n_channels = 6
+    if add_geometrical_features:
+        n_channels += 3
+    if compute_HOG:
+        n_channels += 6
+
+    return _NAME, run_id, path, callbacks, KPC, n_channels
+
+def test_road_segmentation(add_geometrical_features = True, 
+                           subsample_flag = True,
+                           compute_HOG = False, 
+                           test_name='Test_'):
+
+    _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(add_geometrical_features = add_geometrical_features, 
+                                                             subsample_flag = subsample_flag,
+                                                             compute_HOG = compute_HOG)
+
     #limit_index = -1 for all dataset while i > 0 for smaller #samples
-    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
+    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = 3)
 
     print(f_test.shape, gt_test.shape)
     
@@ -45,7 +76,7 @@ if __name__ == "__main__":
         "loss_function" : "binary_crossentropy",
         "learning_rate" : 1e-4,
         "batch_size"    : 3,
-        "epochs"        : 100,
+        "epochs"        : 1,
         "optimizer"     : "keras.optimizers.Adam"
     }
 
@@ -61,21 +92,11 @@ if __name__ == "__main__":
     test_datagen = ImageDataGenerator() #horizontal_flip=True #add this ?
     test_iterator = test_datagen.flow(f_test, gt_test, 
                     batch_size=1, shuffle=True)
-    
-    run_id = utils.get_unique_id()
-    path = utils.create_run_dir(_RUN_PATH, run_id)
-
-    # number of channels in the images
-    n_channels = 6
-    if add_geometrical_features:
-        n_channels += 3
-    if compute_HOG:
-        n_channels += 6
 
     model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
 
     model.summary()
-    callbacks = utils.get_basic_callbacks(path)
+    
     
     # Add more callbacks
     # early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
@@ -98,7 +119,10 @@ if __name__ == "__main__":
     
     model.save("{}/model/final_model.h5".format(path))
     plot_history(m_history)
-    
+    png_name = '{}.png'.format(path+'/'+test_name)
+    print(png_name)
+    plt.savefig(png_name)
+    plt.close()
     #test set prediction
     all_pred = model.predict_generator(test_iterator,
                                        steps = f_test.shape[0])
@@ -109,17 +133,24 @@ if __name__ == "__main__":
     for key in result:
         print(key, result)
     #plot single prediction
-    single_pred = all_pred[1,:,:,:]
+    #single_pred = all_pred[1,:,:,:]
     #plot([[single_pred]])
     
     #argmax to obtain segmentation
-    plot([[1-utils.apply_argmax(single_pred)]])
-    plt.show()
+    #plot([[1-utils.apply_argmax(single_pred)]])
+    #plt.show()
 
     result = {"name" : _NAME,
+              "test_name" : test_name,
            "run_id" : run_id,
            "dataset": "KITTI",
            "training_config" : training_config,
            }
     with open('{}/details.json'.format(path), 'w') as f:
         json.dump(result, f)
+    return result
+
+if __name__ == "__main__":
+    
+#    test_road_segmentation()
+    test_all()

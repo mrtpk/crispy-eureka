@@ -136,6 +136,16 @@ def load_pc(paths):
         result.append(pc)
     return result
 
+def load_img(paths):
+    '''
+    Process image at paths using given function
+    '''
+    result = []
+    for path in paths:
+        img = get_image(path, is_color=True, rgb=False)
+        result.append(img)
+    return result
+
 def process_img(paths, func):
     '''
     Process image at paths using given function
