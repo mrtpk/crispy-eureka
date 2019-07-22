@@ -27,11 +27,13 @@ if __name__ == "__main__":
     logger.debug('Logger EXP0 int')
 
     add_geometrical_features = True #add geometrical features flag
-    subsample_flag = True 
+    subsample_flag = True
+    compute_HOG = False
     #create dataclass
     KPC = utils.KittiPointCloudClass(dataset_path=PATH, 
                                      add_geometrical_features=add_geometrical_features,
-                                     subsample=subsample_flag)
+                                     subsample=subsample_flag,
+                                     compute_HOG=compute_HOG)
     
     #limit_index = -1 for all dataset while i > 0 for smaller #samples
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
@@ -62,14 +64,16 @@ if __name__ == "__main__":
     
     run_id = utils.get_unique_id()
     path = utils.create_run_dir(_RUN_PATH, run_id)
-    
+
+    # number of channels in the images
+    n_channels = 6
     if add_geometrical_features:
-        model = dl_models.get_lodnn_model(shape=(400,200, 9))
-        # model = dl_models.get_unet_model(shape=(400,200,9))
-    else:
-        model = dl_models.get_lodnn_model(shape=(400,200, 6))
-        # model = dl_models.get_unet_model(shape=(400,200,6))
-    
+        n_channels += 3
+    if compute_HOG:
+        n_channels += 6
+
+    model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
+
     model.summary()
     callbacks = utils.get_basic_callbacks(path)
     

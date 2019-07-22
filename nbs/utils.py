@@ -12,6 +12,8 @@ from helpers.normals import estimate_normals_from_spherical_img
 from helpers.calibration import get_lidar_in_image_fov
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import average_precision_score
+from sklearn.neighbors import NearestNeighbors
+from sklearn.decomposition import PCA
 import keras
 from keras.callbacks import TensorBoard
 from tqdm import tqdm
@@ -98,34 +100,17 @@ class KittiPointCloudClass:
     """ 
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
-    def __init__(self, dataset_path, add_geometrical_features, subsample):
+    def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG):
         # get dataset
         self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
         self.add_geometrical_features=add_geometrical_features #Flag
         self.subsample = subsample #Flag
+        self.compute_HOG = compute_HOG  # Flag
         self.side_range=(-10, 10) #this is fixed here for KITTI
         self.fwd_range=(6, 46) #this is fixed here for KITTI
         self.res=.1
-        
 
-    def subsample_16(self, points):
-        # initialize projector
-        proj = Projection(proj_type='spherical', res_azimuthal=100, res_planar=300)
-        # project point cloud to spherical image
-        sph_img = proj.project_points_values(points[:,:3], np.ones(len(points)), res_values=1, dtype=np.uint8)
-
-        # selecting only odd rows of the image
-        odd_rows = np.arange(1, sph_img.shape[0], 2)
-        # initialize subsampled image
-        sub_img = sph_img.copy()
-        # eliminate points in odd rows
-        sub_img[odd_rows] = 0
-        # project back points to subsample
-        sub_points = proj.back_project(points[:,:3], sub_img, res_value=1, dtype=np.uint8)
-        # return subsampled points
-        return points[sub_points == 1]
-
-    def subsample(self, points, sub_ratio=2):
+    def subsample_pc(self, points, sub_ratio=2):
         '''
         Return sub sampled point cloud
         '''
@@ -141,8 +126,7 @@ class KittiPointCloudClass:
         # angle of corresponding to inclination of layers
         phi_centers = np.linspace(phi_center_min, phi_center_max, 64)
 
-        from sklearn.neighbors import NearestNeighbors
-
+        # compute first nearest neighbor for each phis
         nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(phi_centers.reshape(-1, 1))
 
         # for each azimuthal angle we compute its nearest neighbors in the phi_centers vector
@@ -202,7 +186,7 @@ class KittiPointCloudClass:
         '''
         points_to_pxls = self._project_points_on_img(points, img, calib)
 
-
+        # parameters for HOGDescriptor
         winSize = (64, 64)
         blockSize = (16, 16)
         blockStride = (8, 8)
@@ -215,39 +199,62 @@ class KittiPointCloudClass:
         gammaCorrection = 0
         nlevels = 64
 
-        # todo number of features is hard coded... need to parametrize it
-        num_features = nbins * (4 + 6 * 4 + 6 * 6)
+        num_features = nbins * ( (winSize[0] // cellSize[0] - 1) * (winSize[1] // cellSize[1] - 1) * 4)
+
         hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins, derivAperture, winSigma,
                                 histogramNormType, L2HysThreshold, gammaCorrection, nlevels)
         # compute(img[, winStride[, padding[, locations]]]) -> descriptors
         winStride = (8, 8)
         padding = (8, 8)
 
-        # getting padded img
-        nr, nc = img.shape[:2]
-        pad_img = np.zeros((nr + 8, nc + 8, 3), dtype=img.dtype)
-        for i in range(3):
-            pad_img[:, :, i] = np.pad(img[:, :, i], (4, 4), 'constant', constant_values=(0, 0))
+        # padding img to compute HOG features
+        pad_img = np.pad(img, ((padding[0], padding[0]), (padding[1], padding[1]), (0, 0)), 'constant')
 
         # compute hog features
         hog_features = np.zeros((len(points), num_features))
 
         idx = points_to_pxls[:, 0] >= 0  # getting idx of points projected on img
         # retrieve location for each point
-        locations = tuple([tuple(x) for x in (points_to_pxls[idx] + 4).tolist()])
+        locations = tuple([tuple(x) for x in (points_to_pxls[idx] +  np.array(padding)).tolist()])
         # compute histogram
         hist = hog.compute(pad_img, winStride, padding, locations)
-        hist = hist.reshape(-1, num_features)
+
+        # reshape hist vector to associate at each point its HOG vector
+        hist = hist.reshape((-1, num_features), order='F')
+
+        # points that do not fall in the FOV of image will have zero values
         hog_features[idx] = hist
+
+        # reduce features using pca
+        # first of all we eliminate the null features
+        nn_idx = np.abs(hog_features).sum(axis=0) != 0
+        nn_feats = hog_features[:, nn_idx]
+
+        # this choice of component is heuristic
+        pca = PCA(n_components=6)
+
+        hog_features = pca.fit_transform(nn_feats)
 
         return hog_features
 
     def get_dataset(self, limit_index = 3):
+        print(self.train_set.keys())
         """ NOTE: change limit_index to -1 to train on the whole dataset """
         print('Reading cloud')
         f_train = dls.load_pc(self.train_set["pc"][0:limit_index])
         f_valid = dls.load_pc(self.valid_set["pc"][0:limit_index])
         f_test = dls.load_pc(self.test_set["pc"][0:limit_index])
+
+        print('Reading calibration files')
+        cal_train = dls.process_calib(self.train_set["calib"][0:limit_index])
+        cal_valid = dls.process_calib(self.valid_set["calib"][0:limit_index])
+        cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
+
+        print('Reading camera images')
+        cam_img_train = dls.process_img(self.train_set["imgs"][0:limit_index], lambda x: x)
+        cam_img_valid = dls.process_img(self.valid_set["imgs"][0:limit_index], lambda x: x)
+        cam_img_test = dls.process_img(self.test_set["imgs"][0:limit_index], lambda x: x)
+
         #Update min max z
         z_vals = dls.process_list(f_train + f_valid, get_z)
         z_vals = np.concatenate([z_vals])
@@ -258,9 +265,9 @@ class KittiPointCloudClass:
         if self.subsample:
             print('Read and Subsample cloud')
             t = time()
-            f_train = dls.process_list(f_train, self.subsample_16)
-            f_valid = dls.process_list(f_valid, self.subsample_16)
-            f_test = dls.process_list(f_test, self.subsample_16)            
+            f_train = dls.process_list(f_train, self.subsample_pc)
+            f_valid = dls.process_list(f_valid, self.subsample_pc)
+            f_test = dls.process_list(f_test, self.subsample_pc)
             print('Evaluated in : '+repr(time()-t))
         #Update with maximum points found within a cell to be used for normalization later
         print('Evaluating count')
@@ -276,25 +283,35 @@ class KittiPointCloudClass:
             
         print('Extracting features')
         t = time()
-        f_train = dls.process_list(f_train, self.get_features)
-        f_valid = dls.process_list(f_valid, self.get_features)
-        f_test = dls.process_list(f_test, self.get_features)
+
+        f_cam_calib_train = [(f_t, img, calib) for f_t, img, calib in zip(f_train, cam_img_train, cal_train)]
+        f_cam_calib_valid = [(f_t, img, calib) for f_t, img, calib in zip(f_valid, cam_img_valid, cal_valid)]
+        f_cam_calib_test = [(f_t, img, calib) for f_t, img, calib in zip(f_test, cam_img_test, cal_test)]
+
+
+        f_train = dls.process_list(f_cam_calib_train, self.get_features)
+        f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
+        f_test = dls.process_list(f_cam_calib_test, self.get_features)
         print('Evaluated in : '+repr(time()-t))
         gt_train = dls.process_img(self.train_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
         gt_valid = dls.process_img(self.valid_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
         gt_test = dls.process_img(self.test_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
         return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(gt_test)
 
-    def get_features(self, points):
+    def get_features(self, raw_info):
         """
         Remove points outisde y \in [-10, 10] and x \in [6, 46]
         """
+        points = raw_info[0]
+        img = raw_info[1]
+        calib = raw_info[2]
         points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
         z = points[:, 2]
         z = (z - self.z_min)/(self.z_max - self.z_min)
         points[:, 2] = z
+
         #get all features and normalize count channel
-        f = self._get_features(points)
+        f = self._get_features(points, img, calib)
         f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
         return f
     
@@ -341,7 +358,7 @@ class KittiPointCloudClass:
         o_count            = norm_binned_count.reshape(img_height, img_width)
         return o_count
     
-    def _get_features(self,points):
+    def _get_features(self, points, img=None, calib=None):
         '''
         Returns features of the point cloud as stacked grayscale images.
         Shape of the output is (400x200x6).
@@ -458,6 +475,20 @@ class KittiPointCloudClass:
                                         o_min_elevation,
                                         o_mean_elevation,
                                         o_std_elevation])
+
+        if self.compute_HOG:
+            # extract hog features from camera image
+            hog_features = self.get_HOG(points[:,:3], img, calib)
+
+            hog_features_map = np.zeros((img_height, img_width, hog_features.shape[1]))
+
+            for i in range(hog_features.shape[1]):
+                binned_i = np.bincount(lidx, hog_features[:,i], minlength=number_of_grids)
+                binned_mean_i = np.divide(binned_i, binned_count, out=np.zeros_like(binned_i), where=binned_count != 0.0)
+                hog_features_map[:,:,i] = binned_mean_i.reshape(img_height, img_width)
+
+            out_feature_map = np.dstack([out_feature_map, hog_features_map])
+
         return out_feature_map
 
 def get_metrics_count(pred, gt):
