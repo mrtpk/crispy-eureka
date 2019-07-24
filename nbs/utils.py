@@ -51,7 +51,7 @@ def get_basic_callbacks(path):
 
 
 def apply_argmax(res):
-    return np.argmax(res, axis=2)
+    return 1 - np.argmax(res, axis=2)
 
 def get_z(points):
 #    return points[:,2].reshape(-1,1)
@@ -62,7 +62,7 @@ def get_first_chan(points):
 
 def measure_perf(path, all_pred, all_gt):
     result_path = "{}/output/*".format(path)
-    os.makedirs(os.path.dirname(result_path), exist_ok=True)    
+    os.makedirs(os.path.dirname(result_path), exist_ok=True)
     F1, P, R, ACC = [], [], [], []
     FN, FP, TP, TN = [], [], [], []
     AP = []
