@@ -1,4 +1,6 @@
 #%matplotlib inline
+import os
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import json
@@ -9,11 +11,15 @@ import utils
 import dl_models
 import keras #this is required
 from keras.preprocessing.image import ImageDataGenerator
+import tensorflow as tf
+from keras import backend as k
+from keras_custom_loss import jaccard2_loss
 
-def test_all():
+def test_all(model_name):
     """ 
     Test simple features, geomtric features with and without subsampling at 16, 32, 64 if possible
     """
+
     all_results = {}
     test_name = {}
     prefix = 'Classical_'
@@ -23,13 +29,14 @@ def test_all():
                 key = (add_geometrical_features, subsample_flag, compute_HOG)
                 test_name[key] = prefix+g+s+h
                 print(test_name[key])
-                all_results[key] = test_road_segmentation(add_geometrical_features=add_geometrical_features,
-                                   subsample_flag =subsample_flag,
-                                   compute_HOG = compute_HOG, 
-                                   test_name = test_name[key])
+                all_results[key] = test_road_segmentation(model_name,
+                                                          add_geometrical_features=add_geometrical_features,
+                                                          subsample_flag =subsample_flag,
+                                                          compute_HOG = compute_HOG,
+                                                          test_name = test_name[key])
     return all_results
 
-def get_KPC_setup(add_geometrical_features = True, 
+def get_KPC_setup(model_name, add_geometrical_features = True,
                  subsample_flag = True,
                  compute_HOG = False):
     PATH = '../' # path of the repo.
@@ -39,7 +46,7 @@ def get_KPC_setup(add_geometrical_features = True,
     logger = Logger('EXP0', _LOG + 'experiment0.log')
     logger.debug('Logger EXP0 int')
     #paths
-    run_id = utils.get_unique_id()
+    run_id = model_name + '_' +utils.get_unique_id()
     path = utils.create_run_dir(_RUN_PATH, run_id)
     callbacks = utils.get_basic_callbacks(path)
     
@@ -57,18 +64,36 @@ def get_KPC_setup(add_geometrical_features = True,
 
     return _NAME, run_id, path, callbacks, KPC, n_channels
 
-def test_road_segmentation(add_geometrical_features = True, 
+def test_road_segmentation(model_name,
+                           add_geometrical_features = True,
                            subsample_flag = True,
                            compute_HOG = False, 
                            test_name='Test_'):
 
-    _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(add_geometrical_features = add_geometrical_features, 
+    _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name, add_geometrical_features = add_geometrical_features,
                                                              subsample_flag = subsample_flag,
                                                              compute_HOG = compute_HOG)
 
     #limit_index = -1 for all dataset while i > 0 for smaller #samples
-    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = 3)
+    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
 
+    _, n_row, n_col, _ = f_train.shape
+
+    if 'unet' in model_name:
+        multiple_of = 16 if model_name =='unet' else 32
+        nrpad =  multiple_of - n_row % multiple_of if n_row % multiple_of != 0 else 0
+        ncpad =  multiple_of - n_col % multiple_of if n_col % multiple_of != 0 else 0
+
+        f_train = np.pad(f_train, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+        f_valid = np.pad(f_valid, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+        f_test = np.pad(f_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+
+        gt_train = np.pad(gt_train, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+        gt_train[:,n_col:, n_row:, 1] = 1 # set the new pixels to non-road
+        gt_valid = np.pad(gt_valid, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+        gt_valid[:, n_col:, n_row:, 1] = 1  # set the new pixels to non-road
+        gt_test = np.pad(gt_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+        gt_test[:, n_col:, n_row:, 1] = 1  # set the new pixels to non-road
     print(f_test.shape, gt_test.shape)
     
     # All training params to be added here
@@ -76,7 +101,7 @@ def test_road_segmentation(add_geometrical_features = True,
         "loss_function" : "binary_crossentropy",
         "learning_rate" : 1e-4,
         "batch_size"    : 3,
-        "epochs"        : 1,
+        "epochs"        : 100,
         "optimizer"     : "keras.optimizers.Adam"
     }
 
@@ -89,12 +114,20 @@ def test_road_segmentation(add_geometrical_features = True,
     valid_iterator = valid_datagen.flow(f_valid, gt_valid, 
                     batch_size=1, shuffle=True)
     # Test 
-    test_datagen = ImageDataGenerator() #horizontal_flip=True #add this ?
-    test_iterator = test_datagen.flow(f_test, gt_test, 
-                    batch_size=1, shuffle=True)
-
-    model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
-
+    # test_datagen = ImageDataGenerator() #horizontal_flip=True #add this ?
+    # test_iterator = test_datagen.flow(f_test, gt_test,
+    #                 batch_size=1, shuffle=True)
+    if model_name=='lodnn':
+        model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
+    elif model_name=='unet':
+        model = dl_models.get_unet_model(input_size=(f_train.shape[1],f_train.shape[2], n_channels))
+    elif model_name=='unet6':
+        model = dl_models.u_net6(shape=(f_train.shape[1],f_train.shape[2], n_channels),
+                                 filters=512,
+                                 int_space=32,
+                                 output_channels=2)
+    else:
+        raise ValueError("Acceptable values for model parameter are 'lodnn', 'unet', 'unet6'.")
     model.summary()
     
     
@@ -104,7 +137,7 @@ def test_road_segmentation(add_geometrical_features = True,
     # callbacks = callbacks + [early_stopping, reduce_lr]
     
     optimizer = eval(training_config["optimizer"])(lr=training_config["learning_rate"])
-    model.compile(loss=training_config["loss_function"],
+    model.compile(loss=jaccard2_loss,
                   optimizer=optimizer,
                   metrics=['accuracy'])
     
@@ -124,11 +157,16 @@ def test_road_segmentation(add_geometrical_features = True,
     plt.savefig(png_name)
     plt.close()
     #test set prediction
-    all_pred = model.predict_generator(test_iterator,
-                                       steps = f_test.shape[0])
+
+    all_pred = []
+    for f in f_test:
+        all_pred.append(model.predict(np.expand_dims(f, axis=0))[0,:,:,:])
     all_pred = np.array(all_pred)
 
-    result = utils.measure_perf(path, all_pred, gt_test)
+    if 'unet' in model_name:
+        result = utils.measure_perf(path, all_pred[:,:n_row,:n_col, :], gt_test[:,:n_row,:n_col, :])
+    else:
+        result = utils.measure_perf(path, all_pred, gt_test)
     print('------------------------------------------------')
     for key in result:
         print(key, result)
@@ -153,4 +191,24 @@ def test_road_segmentation(add_geometrical_features = True,
 if __name__ == "__main__":
     
 #    test_road_segmentation()
-    test_all()
+    parser = argparse.ArgumentParser(description="Road Segmentation")
+    parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
+    parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
+
+    args = parser.parse_args()
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
+
+    # Tensorflow wizardry
+    config = tf.ConfigProto()
+    # Don't pre-allocate memory; allocate as-needed
+    config.gpu_options.allow_growth = True
+
+    # Only allow a total of half the GPU memory to be allocated
+    # config.gpu_options.per_process_gpu_memory_fraction = 0.85
+
+    # create a session with the above option specified
+    k.tensorflow_backend.set_session(tf.Session(config=config))
+    run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
+
+    test_all(args.model)
