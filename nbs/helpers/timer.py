@@ -12,7 +12,7 @@ def timer(func):
         rv = func(*args, **kwargs)
         after = time()
         print("Elapsed time to exectute {.__name__}: {}".format(func, after-before))
-        return rv
+        return rv, after-before
 
     return f
 
