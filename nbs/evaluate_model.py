@@ -6,11 +6,16 @@ import json
 import utils
 import dl_models
 from helpers.timer import timer
+from helpers.viz import plot_confusion_matrix, ConfusionMatrix
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score, jaccard_score, recall_score, precision_score, f1_score
 import keras # this is required
 from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from keras import backend as k
 from keras.optimizers import *
+
+
 
 def load_dataset(add_geometrical_features=True,
                   subsample_flag=True,
@@ -25,7 +30,7 @@ def load_dataset(add_geometrical_features=True,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG)
 
-    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
+    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index=-1)
 
     return f_test, gt_test
 
@@ -55,6 +60,7 @@ def get_info_from_test_name(filename):
 
     return geometric, hog, sampled, d['training_config']
 
+
 def initialize_model(model_name, weights, training_config, shape):
     # initialize model
     if model_name == 'lodnn':
@@ -83,43 +89,58 @@ def initialize_model(model_name, weights, training_config, shape):
 
     return model
 
+
 @timer
 def predict_sample(model, sample):
     prediction = model.predict(sample)
     return prediction[0, :, :, :]
 
+
 def predict_test_set(model, f_test):
     all_pred = []
-
+    all_times =[]
     for f in f_test:
-        prediction = predict_sample(model, np.expand_dims(f, axis=0))
+        prediction, time = predict_sample(model, np.expand_dims(f, axis=0))
         all_pred.append(prediction)
+        all_times.append(time)
 
     all_pred = np.array(all_pred)
+    all_times = np.array(all_times)
+    print("Mean prediction time: {}. Std prediction time: {}".format(all_times.mean(), all_times.std()))
 
-    return all_pred
+    return all_pred, all_times
+
 
 def compute_scores(pred, gt):
 
-    all_f1, all_recall, all_prec, all_acc = [], [], [], []
+    gt_all = gt[:,:,:,0].flatten()
+    argmax_pred = 1 - np.argmax(pred, axis=3)
+    argmax_pred = argmax_pred.flatten()
+    # f1, recall, precision, acc, jaccard = utils.get_metrics(gt=gt_all, pred=argmax_pred)
+    acc = accuracy_score(gt_all, argmax_pred)
+    recall = recall_score(gt_all, argmax_pred)
+    precision = precision_score(gt_all, argmax_pred)
+    f1 = f1_score(gt_all, argmax_pred)
+    jaccard = jaccard_score(gt_all, argmax_pred)
 
-    for n in range(len(pred)):
+    print("Scores: "
+          "F1 -> {},"
+          " Recall -> {},"
+          " Precision -> {},"
+          " Accuracy -> {},"
+          " Jaccard -> {}".format(f1, recall, precision, acc, jaccard))
 
-        f1, recall, precision, acc = utils.get_metrics(gt=gt[n, :, :, 0], pred=utils.apply_argmax(pred[n, :, :, :]))
-        print("Scores for sample {}: F1 -> {}, Recall -> {}, Precision -> {}, Accuracy -> {}".format(n, f1, recall, precision, acc))
-        all_f1.append(f1)
-        all_recall.append(recall)
-        all_prec.append(precision)
-        all_acc.append(precision)
 
     print('------------------------------------------------')
 
-    scores = {'f1': all_f1,
-              'recall': all_recall,
-              'precision': all_prec,
-              'acc': all_acc}
+    scores = {'f1': f1,
+              'recall': recall,
+              'precision': precision,
+              'acc': acc,
+              'jaccard': jaccard}
 
     return scores
+
 
 def evaluate_model(model_name, weights):
     # getting dir
@@ -136,21 +157,20 @@ def evaluate_model(model_name, weights):
                                    subsample_flag=sampled,
                                    compute_HOG=hog)
 
-
     # image shape
     n_row, n_col, n_channels = f_test.shape[1:]
 
     if 'unet' in model_name:
         multiple_of = 16 if model_name =='unet' else 32
-        nrpad =  multiple_of - n_row % multiple_of if n_row % multiple_of != 0 else 0
-        ncpad =  multiple_of - n_col % multiple_of if n_col % multiple_of != 0 else 0
+        nrpad = multiple_of - (n_row % multiple_of) if (n_row % multiple_of) != 0 else 0
+        ncpad = multiple_of - (n_col % multiple_of) if (n_col % multiple_of) != 0 else 0
 
         f_test = np.pad(f_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
 
     # initializing model
     model = initialize_model(model_name, weights, training_config, (n_row, n_col, n_channels))
 
-    pred = predict_test_set(model, f_test)
+    pred, times = predict_test_set(model, f_test)
 
     if 'unet' in model_name:
         scores = compute_scores(pred[:, :n_row, :n_col, :], gt_test)
@@ -169,7 +189,19 @@ def evaluate_model(model_name, weights):
         ax[3].set_title('pred_argmax_{}'.format(n))
         plt.show()
 
-    return scores
+    output = np.zeros_like(gt_test[:, :, :, 0])
+    for i in range(pred.shape[0]):
+        output[i] = 1 - np.argmax(pred[i], axis=2)
+
+    cm = confusion_matrix(gt_test[:, :, :, 0].flatten(), output.flatten())
+    plot_confusion_matrix(cm, ['not_road', 'road'], normalize=True)
+    conf_mat = ConfusionMatrix(number_of_labels=2)
+    conf_mat.confusion_matrix = cm
+    print("Overall Accuracy: {}".format(conf_mat.get_overall_accuracy()))
+    print("IoU: {}".format(conf_mat.get_average_intersection_union()))
+
+    return f_test, gt_test, model, scores, pred, times, conf_mat
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Road Segmentation")
@@ -178,7 +210,6 @@ if __name__ == "__main__":
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
 
     args = parser.parse_args()
-
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
 
