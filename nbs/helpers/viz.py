@@ -12,7 +12,7 @@
 # Helpers for images
 ##########
 
-import matplotlib
+import numpy as np
 import matplotlib.pyplot as plt
 # %matplotlib qt # for process_stream
 import cv2
@@ -157,3 +157,118 @@ def plot_history(history):
     plt.ylabel('Accuracy')
     plt.legend()
     # plt.show()
+
+
+class ConfusionMatrix:
+    """Streaming interface to allow for any source of predictions. Initialize it, count predictions one by one, then print confusion matrix and intersection-union score"""
+
+    def __init__(self, number_of_labels=2):
+        self.number_of_labels = number_of_labels
+        self.confusion_matrix = np.zeros(shape=(self.number_of_labels, self.number_of_labels))
+
+    def count_predicted(self, ground_truth, predicted, number_of_added_elements=1):
+        self.confusion_matrix[ground_truth][predicted] += number_of_added_elements
+
+    """labels are integers from 0 to number_of_labels-1"""
+
+    def get_count(self, ground_truth, predicted):
+        return self.confusion_matrix[ground_truth][predicted]
+
+    """returns list of lists of integers; use it as result[ground_truth][predicted]
+       to know how many samples of class ground_truth were reported as class predicted"""
+
+    def get_confusion_matrix(self):
+        return self.confusion_matrix
+
+    """returns list of 64-bit floats"""
+
+    def get_intersection_union_per_class(self):
+        matrix_diagonal = [self.confusion_matrix[i][i] for i in range(self.number_of_labels)]
+        errors_summed_by_row = [0] * self.number_of_labels
+        for row in range(self.number_of_labels):
+            for column in range(self.number_of_labels):
+                if row != column:
+                    errors_summed_by_row[row] += self.confusion_matrix[row][column]
+        errors_summed_by_column = [0] * self.number_of_labels
+        for column in range(self.number_of_labels):
+            for row in range(self.number_of_labels):
+                if row != column:
+                    errors_summed_by_column[column] += self.confusion_matrix[row][column]
+
+        divisor = [0] * self.number_of_labels
+        for i in range(self.number_of_labels):
+            divisor[i] = matrix_diagonal[i] + errors_summed_by_row[i] + errors_summed_by_column[i]
+            if matrix_diagonal[i] == 0:
+                divisor[i] = 1
+
+        return [float(matrix_diagonal[i]) / divisor[i] for i in range(self.number_of_labels)]
+
+    """returns 64-bit float"""
+
+    def get_overall_accuracy(self):
+        matrix_diagonal = 0
+        all_values = 0
+        for row in range(self.number_of_labels):
+            for column in range(self.number_of_labels):
+                all_values += self.confusion_matrix[row][column]
+                if row == column:
+                    matrix_diagonal += self.confusion_matrix[row][column]
+        if all_values == 0:
+            all_values = 1
+        return float(matrix_diagonal) / all_values
+
+    def get_average_intersection_union(self):
+        values = self.get_intersection_union_per_class()
+        return sum(values) / len(values)
+
+
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues,
+                          figsize=(8,8)):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    import matplotlib
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    import itertools
+    font = {
+        'family': 'arial',
+        'size': 14}
+
+    matplotlib.rc('font', **font)
+
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+    im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
+
+    plt.title(title)
+
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.5)
+    plt.colorbar(im, cax=cax)
+    plt.tight_layout()
