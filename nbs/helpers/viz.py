@@ -17,12 +17,13 @@ import matplotlib.pyplot as plt
 # %matplotlib qt # for process_stream
 import cv2
 
-def plot(imgs, labels=None, cmap='gray', figsize=(20,10), fontsize=30):
+def plot(imgs, labels=None, cmap='gray', figsize=(20,10), fontsize=30, show_axis=True):
     '''
     Displays images and labels in a plot.
     Usage:
     The input imgs should be in the format "[[img]]""
     '''
+
     nrows, ncols = len(imgs), len(imgs[0])
     if nrows > 100 or ncols > 50:
         print("Uh-oh, cannot plot these many images")
@@ -35,6 +36,8 @@ def plot(imgs, labels=None, cmap='gray', figsize=(20,10), fontsize=30):
     for i in range(0, nrows):
         for j in range(0, ncols):
             try:
+                if show_axis is False:
+                    axes[i][j].axis('off')
                 axes[i][j].imshow(imgs[i][j], cmap=cmap)
                 if labels is not None:
                     axes[i][j].set_title(labels[i][j], fontsize=fontsize)
