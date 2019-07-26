@@ -98,10 +98,10 @@ def test_road_segmentation(model_name,
     
     # All training params to be added here
     training_config = {
-        "loss_function" : "binary_crossentropy",
+        "loss_function" : "jaccard2_loss",
         "learning_rate" : 1e-4,
         "batch_size"    : 3,
-        "epochs"        : 100,
+        "epochs"        : 120,
         "optimizer"     : "keras.optimizers.Adam"
     }
 
@@ -126,6 +126,8 @@ def test_road_segmentation(model_name,
                                  filters=512,
                                  int_space=32,
                                  output_channels=2)
+    elif model_name=='squeeze':
+        model = dl_models.SqueezeNet(2, input_shape=(f_train.shape[1], f_train.shape[2], n_channels))
     else:
         raise ValueError("Acceptable values for model parameter are 'lodnn', 'unet', 'unet6'.")
     model.summary()
