@@ -200,7 +200,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
-
+    print(args.cuda_device)
     # Tensorflow wizardry
     config = tf.ConfigProto()
     # Don't pre-allocate memory; allocate as-needed
