@@ -14,6 +14,7 @@ from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from keras import backend as k
 from keras.optimizers import *
+from keras_custom_loss import jaccard2_loss
 
 
 
@@ -83,7 +84,7 @@ def initialize_model(model_name, weights, training_config, shape):
     optimizer = eval(training_config["optimizer"])(lr=training_config["learning_rate"])
 
     # compile model
-    model.compile(loss=training_config["loss_function"],
+    model.compile(loss=jaccard2_loss,
                   optimizer=optimizer,
                   metrics=['accuracy'])
 
@@ -156,6 +157,9 @@ def evaluate_model(model_name, weights):
     f_test, gt_test = load_dataset(add_geometrical_features=geometric,
                                    subsample_flag=sampled,
                                    compute_HOG=hog)
+
+    print("Test set shape {}".format(f_test.shape))
+    print("GT set shape {}".format(gt_test.shape))
 
     # image shape
     n_row, n_col, n_channels = f_test.shape[1:]
