@@ -15,7 +15,7 @@ from sklearn.metrics import average_precision_score
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import PCA
 import keras
-from keras.callbacks import TensorBoard
+from keras.callbacks import TensorBoard, EarlyStopping
 from tqdm import tqdm
 import multiprocessing as mp
 
@@ -47,7 +47,10 @@ def get_basic_callbacks(path):
     epoch_save_path = "{}/model/*.h5".format(path)
     save_after_epoch = keras.callbacks.ModelCheckpoint(filepath=epoch_save_path.replace('*', 'e{epoch:02d}-val_acc{val_acc:.2f}'),
                                                        monitor='val_acc', verbose=1, period = 1)
-    return [tensorboard, save_the_best, save_after_epoch]
+
+    stopping = EarlyStopping(monitor='val_loss', patience=20, verbose=0, mode='auto')
+
+    return [tensorboard, save_the_best, save_after_epoch, stopping]
 
 
 def apply_argmax(res):
@@ -241,19 +244,37 @@ class KittiPointCloudClass:
         print(self.train_set.keys())
         """ NOTE: change limit_index to -1 to train on the whole dataset """
         print('Reading cloud')
-        f_train = dls.load_pc(self.train_set["pc"][0:limit_index])
-        f_valid = dls.load_pc(self.valid_set["pc"][0:limit_index])
-        f_test = dls.load_pc(self.test_set["pc"][0:limit_index])
+        if limit_index > 0:
+            f_train = dls.load_pc(self.train_set["pc"][0:limit_index])
+            f_valid = dls.load_pc(self.valid_set["pc"][0:limit_index])
+            f_test = dls.load_pc(self.test_set["pc"][0:limit_index])
 
-        print('Reading calibration files')
-        cal_train = dls.process_calib(self.train_set["calib"][0:limit_index])
-        cal_valid = dls.process_calib(self.valid_set["calib"][0:limit_index])
-        cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
+            print('Reading calibration files')
+            cal_train = dls.process_calib(self.train_set["calib"][0:limit_index])
+            cal_valid = dls.process_calib(self.valid_set["calib"][0:limit_index])
+            cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
 
-        print('Reading camera images')
-        cam_img_train = dls.load_img(self.train_set["imgs"][0:limit_index])
-        cam_img_valid = dls.load_img(self.valid_set["imgs"][0:limit_index])
-        cam_img_test = dls.load_img(self.test_set["imgs"][0:limit_index])
+
+            print('Reading camera images')
+            cam_img_train = dls.load_img(self.train_set["imgs"][0:limit_index])
+            cam_img_valid = dls.load_img(self.valid_set["imgs"][0:limit_index])
+            cam_img_test = dls.load_img(self.test_set["imgs"][0:limit_index])
+
+        else:
+            f_train = dls.load_pc(self.train_set["pc"][0:])
+            f_valid = dls.load_pc(self.valid_set["pc"][0:])
+            f_test = dls.load_pc(self.test_set["pc"][0:])
+
+            print('Reading calibration files')
+            cal_train = dls.process_calib(self.train_set["calib"][0:])
+            cal_valid = dls.process_calib(self.valid_set["calib"][0:])
+            cal_test = dls.process_calib(self.test_set["calib"][0:])
+
+            print('Reading camera images')
+            cam_img_train = dls.load_img(self.train_set["imgs"][0:])
+            cam_img_valid = dls.load_img(self.valid_set["imgs"][0:])
+            cam_img_test = dls.load_img(self.test_set["imgs"][0:])
+
 
         #Update min max z
         z_vals = dls.process_list(f_train + f_valid, get_z)
@@ -293,9 +314,16 @@ class KittiPointCloudClass:
         f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
         f_test = dls.process_list(f_cam_calib_test, self.get_features)
         print('Evaluated in : '+repr(time()-t))
-        gt_train = dls.process_img(self.train_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
-        gt_valid = dls.process_img(self.valid_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
-        gt_test = dls.process_img(self.test_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+
+        if limit_index > 0:
+            gt_train = dls.process_img(self.train_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+            gt_valid = dls.process_img(self.valid_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+            gt_test = dls.process_img(self.test_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+        else:
+            gt_train = dls.process_img(self.train_set["gt_bev"][0:], func=lambda x: kitti_gt(x))
+            gt_valid = dls.process_img(self.valid_set["gt_bev"][0:], func=lambda x: kitti_gt(x))
+            gt_test = dls.process_img(self.test_set["gt_bev"][0:], func=lambda x: kitti_gt(x))
+
         return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(gt_test)
 
     def get_features(self, raw_info):
