@@ -14,6 +14,9 @@ from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from keras import backend as k
 from keras_custom_loss import jaccard2_loss
+#cyclic lr
+import keras_contrib
+from helpers.sgdr import SGDRScheduler
 
 def test_all(model_name):
     """ 
@@ -99,10 +102,10 @@ def test_road_segmentation(model_name,
     # All training params to be added here
     training_config = {
         "loss_function" : "jaccard2_loss",
-        "learning_rate" : 1e-4,
+        "learning_rate" : 1e-6,
         "batch_size"    : 3,
         "epochs"        : 120,
-        "optimizer"     : "keras.optimizers.Adam"
+        "optimizer"     : "keras.optimizers.Adam" #"keras.optimizers.Nadam"
     }
 
     #this is the augmentation configuration we will use for training
@@ -138,7 +141,24 @@ def test_road_segmentation(model_name,
     # reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=0.000001)
     # callbacks = callbacks + [early_stopping, reduce_lr]
     
-    optimizer = eval(training_config["optimizer"])(lr=training_config["learning_rate"])
+    #  base_lr (initial learning rate which is the lower boundary in the cycle) is 0.1
+    # clr_fn = lambda x: 0.5*(1+np.sin(x*np.pi/2.))
+    
+    #clr_custom = keras_contrib.callbacks.CyclicLR(mode='exp_range', gamma=0.99994, step_size=2*120) #120 is #iterations in 1 epoch 
+
+    clr_custom = SGDRScheduler(min_lr=1e-5,
+                               max_lr=1e-2,
+                               steps_per_epoch=np.ceil(training_config["epochs"]/training_config["batch_size"]),
+                               lr_decay=0.9,
+                               cycle_length=5,
+                               mult_factor=1.5)
+
+    #Authors suggest setting step_size = (2-8) x (training iterations in epoch). Default 2000.
+    #keras_contrib.callbacks.CyclicLR(base_lr=0.01, max_lr=0.006, step_size=2000., scale_mode='triangular')
+    #clr_triangular = keras_contrib.callbacks.CyclicLR(mode='triangular')
+    callbacks = callbacks + [clr_custom]
+    # optimizer = eval(training_config["optimizer"])(lr=training_config["learning_rate"])
+    optimizer = keras.optimizers.Nadam()
     model.compile(loss=jaccard2_loss,
                   optimizer=optimizer,
                   metrics=['accuracy'])
