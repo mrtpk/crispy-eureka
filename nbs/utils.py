@@ -19,10 +19,9 @@ from keras.callbacks import TensorBoard, EarlyStopping
 from tqdm import tqdm
 import multiprocessing as mp
 #memory cache now pre-evalutes get_feature functions. Attention if you change the code make sure you empty the cachefolder to re-evalaute these features.
-from joblib import Memory
+
 #from keras.callbacks import ModelCheckpoint, LearningRateScheduler
-cachedir = 'cachedir/'
-memory = Memory(cachedir, verbose=0)
+
 
 def get_unique_id():
     return datetime.datetime.today().strftime('%Y_%m_%d_%H_%M')
@@ -120,133 +119,6 @@ class KittiPointCloudClass:
         self.img_height = int((self.fwd_range[1] - self.fwd_range[0])/self.res)
         self.number_of_grids = self.img_height * self.img_width
 
-    def subsample_pc(self, points, sub_ratio=2):
-        '''
-        Return sub sampled point cloud
-        '''
-        x = points[:, 0]
-        y = points[:, 1]
-        z = points[:, 2]
-        aux_sum = np.sqrt(np.square(x) + np.square(y))
-        # azimuthal angles
-        phis = np.arctan2(z, aux_sum)
-        # max and min values of the azimuthal angles
-        phi_center_max, phi_center_min = phis.max() - (0.2 / 180.0 * np.pi), phis.min() + (0.2 / 180.0 * np.pi)
-
-        # angle of corresponding to inclination of layers
-        phi_centers = np.linspace(phi_center_min, phi_center_max, 64)
-
-        # compute first nearest neighbor for each phis
-        nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(phi_centers.reshape(-1, 1))
-
-        # for each azimuthal angle we compute its nearest neighbors in the phi_centers vector
-        # in this way at each points we associate a layer of the velodyne
-        _, ind = nbrs.kneighbors(phis.reshape(-1, 1))
-
-        ind = ind.reshape(-1)
-
-        # sampling only points with even id
-        return points[ind % sub_ratio == 0]
-
-    def _project_points_on_img(self, points, img, calib):
-
-        '''
-        Function that  project point cloud on fron view image and retrieve RGB information
-        '''
-        height, width = img.shape[:2]
-
-        imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
-                                                                  return_more=True)
-
-        # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
-        velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
-
-        points_to_pxls = np.ones((len(points), 2), dtype=int)
-
-        points_to_pxls[fov_inds] = velo_to_pxls[:, [1, 0]]
-
-        return points_to_pxls
-
-    def get_RGB(self, points, img, calib):
-        '''
-        Function that  project point cloud on fron view image and retrieve RGB information
-        '''
-        height, width = img.shape[:2]
-
-        imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
-                                                                  return_more=True)
-
-        # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
-        velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
-
-        # for each point in FOV of the image we retrieve the value of the pixel corresponding to the point
-        back_RGB = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
-
-        # initialize RGB feature vector
-        RGB = np.zeros((len(points), 3))
-
-        # for points in the FOV we assign RGB values
-        RGB[fov_inds] = back_RGB
-
-        return RGB
-
-    def get_HOG(self, points, img, calib):
-        '''
-        A basic function that compute HOG features on the front image
-        '''
-        points_to_pxls = self._project_points_on_img(points, img, calib)
-
-        # parameters for HOGDescriptor
-        winSize = (64, 64)
-        blockSize = (16, 16)
-        blockStride = (8, 8)
-        cellSize = (8, 8)
-        nbins = 9
-        derivAperture = 1
-        winSigma = 4.
-        histogramNormType = 0
-        L2HysThreshold = 2.0000000000000001e-01
-        gammaCorrection = 0
-        nlevels = 64
-
-        num_features = nbins * ( (winSize[0] // cellSize[0] - 1) * (winSize[1] // cellSize[1] - 1) * 4)
-
-        hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins, derivAperture, winSigma,
-                                histogramNormType, L2HysThreshold, gammaCorrection, nlevels)
-        # compute(img[, winStride[, padding[, locations]]]) -> descriptors
-        winStride = (8, 8)
-        padding = (8, 8)
-
-        # padding img to compute HOG features
-        pad_img = np.pad(img, ((padding[0], padding[0]), (padding[1], padding[1]), (0, 0)), 'constant')
-
-        # compute hog features
-        hog_features = np.zeros((len(points), num_features))
-
-        idx = points_to_pxls[:, 0] >= 0  # getting idx of points projected on img
-        # retrieve location for each point
-        locations = tuple([tuple(x) for x in (points_to_pxls[idx] +  np.array(padding)).tolist()])
-        # compute histogram
-        hist = hog.compute(pad_img, winStride, padding, locations)
-
-        # reshape hist vector to associate at each point its HOG vector
-        hist = hist.reshape((-1, num_features), order='F')
-
-        # points that do not fall in the FOV of image will have zero values
-        hog_features[idx] = hist
-
-        # reduce features using pca
-        # first of all we eliminate the null features
-        nn_idx = np.abs(hog_features).sum(axis=0) != 0
-        nn_feats = hog_features[:, nn_idx]
-
-        # this choice of component is heuristic
-        pca = PCA(n_components=6)
-
-        hog_features = pca.fit_transform(nn_feats)
-
-        return hog_features
-
     def get_dataset(self, limit_index = 3):
         print(self.train_set.keys())
         """ NOTE: change limit_index to -1 to train on the whole dataset """
@@ -293,9 +165,9 @@ class KittiPointCloudClass:
         if self.subsample:
             print('Read and Subsample cloud')
             t = time()
-            f_train = dls.process_list(f_train, self.subsample_pc)
-            f_valid = dls.process_list(f_valid, self.subsample_pc)
-            f_test = dls.process_list(f_test, self.subsample_pc)
+            f_train = dls.process_list(f_train, subsample_pc)
+            f_valid = dls.process_list(f_valid, subsample_pc)
+            f_test = dls.process_list(f_test, subsample_pc)
             print('Evaluated in : '+repr(time()-t))
         #Update with maximum points found within a cell to be used for normalization later
         print('Evaluating count')
@@ -304,7 +176,7 @@ class KittiPointCloudClass:
         for _f in f_train+f_test:
             _filtered = pc.filter_points(_f, side_range=self.side_range, 
                                          fwd_range=self.fwd_range)
-            f_count = _get_count_features(_filtered, self.side_range, self.fwd_range, self.res)
+            f_count = get_count_features(_filtered, self.side_range, self.fwd_range, self.res)
             self.COUNT_MAX.append(int(np.max(f_count)))
         self.COUNT_MAX = max(self.COUNT_MAX)
         print("Count varies from {} to {}".format(self.COUNT_MIN, self.COUNT_MAX))    
@@ -353,7 +225,7 @@ class KittiPointCloudClass:
         #f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
         #return f
 
-        out_feature_map, lidx, binned_count = _get_classical_features(points, self.side_range, self.fwd_range, self.res)
+        out_feature_map, lidx, binned_count = get_classical_features(points, self.side_range, self.fwd_range, self.res)
 
         if self.add_geometrical_features:
             if self.subsample:
@@ -361,7 +233,7 @@ class KittiPointCloudClass:
             else:
                 res_az = 100
             # estimate normals
-            normals = _get_normals(points[:, :3], res_az=res_az, res_planar=300)
+            normals = get_normals(points[:, :3], res_az=res_az, res_planar=300)
 
             nx_lidar = normals[:, 0]
             ny_lidar = normals[:, 1]
@@ -387,7 +259,7 @@ class KittiPointCloudClass:
 
         if self.compute_HOG:
             # extract hog features from camera image
-            hog_features = self.get_HOG(points[:,:3], img, calib)
+            hog_features = get_HOG(points[:,:3], img, calib)
 
             hog_features_map = np.zeros((self.img_height, self.img_width, hog_features.shape[1]))
 
@@ -398,7 +270,8 @@ class KittiPointCloudClass:
 
             out_feature_map = np.dstack([out_feature_map, hog_features_map])
 
-        out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX #cell count normalization
+        #cell count normalization
+        out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX 
 
         return out_feature_map
 
@@ -441,8 +314,7 @@ def kitti_gt(img):
 
 # to add, get ground truth from lodnn dataset
 
-@memory.cache
-def _get_normals(points, res_az=100, res_planar=300):
+def get_normals(points, res_az=100, res_planar=300):
     '''
     Estimate surface normals on spherical image
 
@@ -478,7 +350,6 @@ def _get_normals(points, res_az=100, res_planar=300):
 
     return pc_normals
 
-@memory.cache
 def _get_lidx(points, side_range, fwd_range, res):
     # calculate the image dimensions
     img_width = int((side_range[1] - side_range[0])/res)
@@ -503,8 +374,7 @@ def _get_lidx(points, side_range, fwd_range, res):
     
     return lidx, x_img_mapping, y_img_mapping
 
-@memory.cache
-def _get_classical_features(points, side_range, fwd_range, res):
+def get_classical_features(points, side_range, fwd_range, res):
     # calculate the image dimensions
     img_width = int((side_range[1] - side_range[0])/res)
     img_height = int((fwd_range[1] - fwd_range[0])/res)
@@ -564,8 +434,7 @@ def _get_classical_features(points, side_range, fwd_range, res):
                                         o_std_elevation])
     return out_feature_map, lidx, binned_count
 
-@memory.cache
-def _get_count_features(points, side_range, fwd_range, res):
+def get_count_features(points, side_range, fwd_range, res):
     '''
     Returns features of the point cloud as stacked grayscale images.
     Shape of the output is (400x200x6).
@@ -589,3 +458,126 @@ def _get_count_features(points, side_range, fwd_range, res):
     # reshape all other things
     o_count            = norm_binned_count.reshape(img_height, img_width)
     return o_count
+
+def project_points_on_img(points, img, calib):
+    '''
+    Function that  project point cloud on fron view image and retrieve RGB information
+    '''
+    height, width = img.shape[:2]
+    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
+                                                                return_more=True)
+    # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
+    velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
+    points_to_pxls = np.ones((len(points), 2), dtype=int)
+    points_to_pxls[fov_inds] = velo_to_pxls[:, [1, 0]]
+
+    return points_to_pxls
+
+def get_HOG(points, img, calib):
+    '''
+    A basic function that compute HOG features on the front image
+    '''
+    points_to_pxls = project_points_on_img(points, img, calib)
+
+    # hardcoded parameters for HOGDescriptor
+    winSize = (64, 64)
+    blockSize = (16, 16)
+    blockStride = (8, 8)
+    cellSize = (8, 8)
+    nbins = 9
+    derivAperture = 1
+    winSigma = 4.
+    histogramNormType = 0
+    L2HysThreshold = 2.0000000000000001e-01
+    gammaCorrection = 0
+    nlevels = 64
+
+    num_features = nbins * ( (winSize[0] // cellSize[0] - 1) * (winSize[1] // cellSize[1] - 1) * 4)
+
+    hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins, derivAperture, winSigma,
+                            histogramNormType, L2HysThreshold, gammaCorrection, nlevels)
+    # compute(img[, winStride[, padding[, locations]]]) -> descriptors
+    winStride = (8, 8)
+    padding = (8, 8)
+
+    # padding img to compute HOG features
+    pad_img = np.pad(img, ((padding[0], padding[0]), (padding[1], padding[1]), (0, 0)), 'constant')
+
+    # compute hog features
+    hog_features = np.zeros((len(points), num_features))
+
+    idx = points_to_pxls[:, 0] >= 0  # getting idx of points projected on img
+    # retrieve location for each point
+    locations = tuple([tuple(x) for x in (points_to_pxls[idx] +  np.array(padding)).tolist()])
+    # compute histogram
+    hist = hog.compute(pad_img, winStride, padding, locations)
+
+    # reshape hist vector to associate at each point its HOG vector
+    hist = hist.reshape((-1, num_features), order='F')
+
+    # points that do not fall in the FOV of image will have zero values
+    hog_features[idx] = hist
+
+    # reduce features using pca
+    # first of all we eliminate the null features
+    nn_idx = np.abs(hog_features).sum(axis=0) != 0
+    nn_feats = hog_features[:, nn_idx]
+
+    # this choice of component is heuristic
+    pca = PCA(n_components=6)
+
+    hog_features = pca.fit_transform(nn_feats)
+
+    return hog_features
+
+def subsample_pc(points, sub_ratio=2):
+    '''
+    Return sub sampled point cloud
+    '''
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
+    aux_sum = np.sqrt(np.square(x) + np.square(y))
+    # azimuthal angles
+    phis = np.arctan2(z, aux_sum)
+    # max and min values of the azimuthal angles
+    phi_center_max, phi_center_min = phis.max() - (0.2 / 180.0 * np.pi), phis.min() + (0.2 / 180.0 * np.pi)
+
+    # angle of corresponding to inclination of layers
+    phi_centers = np.linspace(phi_center_min, phi_center_max, 64)
+
+    # compute first nearest neighbor for each phis
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(phi_centers.reshape(-1, 1))
+
+    # for each azimuthal angle we compute its nearest neighbors in the phi_centers vector
+    # in this way at each points we associate a layer of the velodyne
+    _, ind = nbrs.kneighbors(phis.reshape(-1, 1))
+
+    ind = ind.reshape(-1)
+
+    # sampling only points with even id
+    return points[ind % sub_ratio == 0]
+
+def get_RGB(points, img, calib):
+    '''
+    Function that  project point cloud on fron view image and retrieve RGB information
+    #TODO : Is this function unused?
+    '''
+    height, width = img.shape[:2]
+
+    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
+                                                                return_more=True)
+
+    # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
+    velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
+
+    # for each point in FOV of the image we retrieve the value of the pixel corresponding to the point
+    back_RGB = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
+
+    # initialize RGB feature vector
+    RGB = np.zeros((len(points), 3))
+
+    # for points in the FOV we assign RGB values
+    RGB[fov_inds] = back_RGB
+
+    return RGB

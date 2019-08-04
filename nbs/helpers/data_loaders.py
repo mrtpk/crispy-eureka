@@ -13,6 +13,9 @@ import copy
 from tqdm import tqdm
 import multiprocessing as mp
 from .calibration import Calibration
+from joblib import Memory
+cachedir = 'cachedir/'
+memory = Memory(cachedir, verbose=0)
 
 def create_dir_struct(path, name):
     '''
@@ -115,6 +118,7 @@ def get_image(path, is_color=True, rgb=False):
         return img
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
+@memory.cache
 def process_list(pc_list, func):
     '''
     Process point cloud from KITTI dataset using given function
