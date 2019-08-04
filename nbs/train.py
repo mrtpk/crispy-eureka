@@ -146,11 +146,11 @@ def test_road_segmentation(model_name,
     
     #clr_custom = keras_contrib.callbacks.CyclicLR(mode='exp_range', gamma=0.99994, step_size=2*120) #120 is #iterations in 1 epoch 
 
-    clr_custom = SGDRScheduler(min_lr=1e-5,
-                               max_lr=1e-2,
+    clr_custom = SGDRScheduler(min_lr=1e-3,
+                               max_lr=4e-2,
                                steps_per_epoch=np.ceil(training_config["epochs"]/training_config["batch_size"]),
                                lr_decay=0.9,
-                               cycle_length=5,
+                               cycle_length=10,
                                mult_factor=1.5)
 
     #Authors suggest setting step_size = (2-8) x (training iterations in epoch). Default 2000.
@@ -175,7 +175,7 @@ def test_road_segmentation(model_name,
     model.save("{}/model/final_model.h5".format(path))
     plot_history(m_history)
     png_name = '{}.png'.format(path+'/'+test_name)
-    print(png_name)
+    
     plt.savefig(png_name)
     plt.close()
     #test set prediction
@@ -192,14 +192,7 @@ def test_road_segmentation(model_name,
     print('------------------------------------------------')
     for key in result:
         print(key, result)
-    #plot single prediction
-    #single_pred = all_pred[1,:,:,:]
-    #plot([[single_pred]])
     
-    #argmax to obtain segmentation
-    #plot([[1-utils.apply_argmax(single_pred)]])
-    #plt.show()
-
     result = {"name" : _NAME,
               "test_name" : test_name,
            "run_id" : run_id,
