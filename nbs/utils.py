@@ -468,7 +468,7 @@ def project_points_on_img(points, img, calib):
                                                                 return_more=True)
     # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
     velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
-    points_to_pxls = np.ones((len(points), 2), dtype=int)
+    points_to_pxls = -1 * np.ones((len(points), 2), dtype=int)
     points_to_pxls[fov_inds] = velo_to_pxls[:, [1, 0]]
 
     return points_to_pxls
@@ -530,33 +530,51 @@ def get_HOG(points, img, calib):
 
     return hog_features
 
+def retrieve_layers(points):
+    '''Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
+    And each layer is stocked in a clockwise (or anticlockwise) fashion.
+    '''
+    x = points[:, 0]
+    y = points[:, 1]
+
+    # compute the theta angles
+    thetas = np.arctan2(y, x)
+    idx = np.ones(len(thetas))
+
+    idx_pos = idx.copy()
+    idx_pos[thetas < 0] = 0
+
+    # since each layer is stocked in a clockwise fashion each time we do a 2*pi angle we can change layer
+    # so we identify each time we do a round
+    changes = np.arange(len(thetas) - 1)[np.ediff1d(idx_pos) == 1]
+    changes += 1  # we add one for indexes reason
+
+    # Stocking intervals. Each element of intervals contains min index and max index of points in the same layer
+    intervals = []
+    for i in range(len(changes)):
+        if i == 0:
+            intervals.append([0, changes[i]])
+        else:
+            intervals.append([changes[i - 1], changes[i]])
+
+    intervals.append([changes[-1], len(thetas)])
+
+    # for each element in interval we assign a label that identifies the layer
+    layers = np.zeros(len(thetas), dtype=np.uint8)
+
+    for n, el in enumerate(intervals):
+        layers[el[0]:el[1]] = n
+
+    return layers
+
 def subsample_pc(points, sub_ratio=2):
     '''
     Return sub sampled point cloud
     '''
-    x = points[:, 0]
-    y = points[:, 1]
-    z = points[:, 2]
-    aux_sum = np.sqrt(np.square(x) + np.square(y))
-    # azimuthal angles
-    phis = np.arctan2(z, aux_sum)
-    # max and min values of the azimuthal angles
-    phi_center_max, phi_center_min = phis.max() - (0.2 / 180.0 * np.pi), phis.min() + (0.2 / 180.0 * np.pi)
-
-    # angle of corresponding to inclination of layers
-    phi_centers = np.linspace(phi_center_min, phi_center_max, 64)
-
-    # compute first nearest neighbor for each phis
-    nbrs = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(phi_centers.reshape(-1, 1))
-
-    # for each azimuthal angle we compute its nearest neighbors in the phi_centers vector
-    # in this way at each points we associate a layer of the velodyne
-    _, ind = nbrs.kneighbors(phis.reshape(-1, 1))
-
-    ind = ind.reshape(-1)
+    layers = retrieve_layers(points)
 
     # sampling only points with even id
-    return points[ind % sub_ratio == 0]
+    return points[layers % sub_ratio == 0]
 
 def get_RGB(points, img, calib):
     '''
