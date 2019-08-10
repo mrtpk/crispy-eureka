@@ -201,3 +201,4 @@ modules.xml
 
 #cache
 nbs/cachedir/joblib/
+nbs/helpers/tmp.h5

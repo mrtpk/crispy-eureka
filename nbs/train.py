@@ -17,6 +17,7 @@ from keras_custom_loss import jaccard2_loss
 #cyclic lr
 import keras_contrib
 from helpers.sgdr import SGDRScheduler
+from helpers.lr_finder import LRFinder, get_lr_for_model
 
 def test_all(model_name):
     """ 
@@ -133,36 +134,30 @@ def test_road_segmentation(model_name,
         model = dl_models.SqueezeNet(2, input_shape=(f_train.shape[1], f_train.shape[2], n_channels))
     else:
         raise ValueError("Acceptable values for model parameter are 'lodnn', 'unet', 'unet6'.")
-    model.summary()
     
+    model.summary()
     
     # Add more callbacks
     # early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
     # reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=0.000001)
     # callbacks = callbacks + [early_stopping, reduce_lr]
-    
-    #  base_lr (initial learning rate which is the lower boundary in the cycle) is 0.1
-    # clr_fn = lambda x: 0.5*(1+np.sin(x*np.pi/2.))
-    
-    clr_custom = keras_contrib.callbacks.CyclicLR(base_lr=0.001, max_lr=0.006, mode='exp_range', gamma=0.99994, step_size=12000) #120 is #iterations in 1 epoch 
 
-    # clr_custom = SGDRScheduler(min_lr=1e-3,
-    #                            max_lr=4e-2,
-    #                            steps_per_epoch=np.ceil(training_config["epochs"]/training_config["batch_size"]),
-    #                            lr_decay=0.9,
-    #                            cycle_length=10,
-    #                            mult_factor=1.5)
+    clr_custom = keras_contrib.callbacks.CyclicLR(base_lr=0.0001, max_lr=0.01, 
+                                                  mode='triangular', gamma=0.99994, 
+                                                  step_size=120000)
+    # clr_triangular._reset(new_base_lr=0.003, new_max_lr=0.009)
+    #clr_custom = SGDRScheduler(min_lr=1e-3, max_lr=1e-2, steps_per_epoch=1e4, lr_decay=0.9, cycle_length=1, mult_factor=2)
 
-    #Authors suggest setting step_size = (2-8) x (training iterations in epoch). Default 2000.
-    #keras_contrib.callbacks.CyclicLR(base_lr=0.01, max_lr=0.006, step_size=2000., scale_mode='triangular')
-    #clr_triangular = keras_contrib.callbacks.CyclicLR(mode='triangular')
     callbacks = callbacks + [clr_custom]
-    # optimizer = eval(training_config["optimizer"])(lr=training_config["learning_rate"])
-    optimizer = keras.optimizers.Nadam()
+    optimizer = keras.optimizers.Nadam() #SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True) #eval(training_config["optimizer"])(lr=training_config["learning_rate"])
+    
     model.compile(loss=jaccard2_loss,
                   optimizer=optimizer,
                   metrics=['accuracy'])
     
+    #get learning rate plots
+    #get_lr_for_model(model, train_iterator)
+
     m_history = model.fit_generator(train_iterator,
                       samples_per_epoch = f_train.shape[0],
                       nb_epoch=training_config["epochs"],
