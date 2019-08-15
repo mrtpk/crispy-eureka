@@ -105,8 +105,7 @@ venv.bak/
 
 # dataset related
 # dataset/
-
-<<<<<<< HEAD
+dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/
 
 # Created by https://www.gitignore.io/api/pycharm+all
 # Edit at https://www.gitignore.io/?templates=pycharm+all

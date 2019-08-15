@@ -143,7 +143,7 @@ def compute_scores(pred, gt):
     return scores
 
 
-def evaluate_model(model_name, weights):
+def evaluate_model(model_name, weights, plot_result_flag):
     # getting dir
     weights_dir = os.path.abspath(os.path.dirname(weights))
 
@@ -181,17 +181,18 @@ def evaluate_model(model_name, weights):
     else:
         scores = compute_scores(pred, gt_test)
 
-    for n in range(len(pred)):
-        f, ax = plt.subplots(1, 4)
-        ax[0].imshow(gt_test[n, :, :, 0])
-        ax[0].set_title('gt_{}'.format(n))
-        ax[1].imshow(pred[n, :, :, 0])
-        ax[1].set_title('pred_0_{}'.format(n))
-        ax[2].imshow(pred[n, :, :, 1])
-        ax[2].set_title('pred_1_{}'.format(n))
-        ax[3].imshow(1 - np.argmax(pred[n, :, :, :], axis=2))
-        ax[3].set_title('pred_argmax_{}'.format(n))
-        plt.show()
+    if plot_result_flag:
+        for n in range(len(pred)):
+            f, ax = plt.subplots(1, 4)
+            ax[0].imshow(gt_test[n, :, :, 0])
+            ax[0].set_title('gt_{}'.format(n))
+            ax[1].imshow(pred[n, :, :, 0])
+            ax[1].set_title('pred_0_{}'.format(n))
+            ax[2].imshow(pred[n, :, :, 1])
+            ax[2].set_title('pred_1_{}'.format(n))
+            ax[3].imshow(1 - np.argmax(pred[n, :, :, :], axis=2))
+            ax[3].set_title('pred_argmax_{}'.format(n))
+            plt.show()
 
     output = np.zeros_like(gt_test[:, :, :, 0])
     for i in range(pred.shape[0]):
@@ -212,7 +213,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_weights', type=str, help='path to model weights')
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
-
+    parser.add_argument('--plot_result_flag', default=False, help='flag to show images of road segmentation')
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
@@ -229,4 +230,4 @@ if __name__ == "__main__":
     k.tensorflow_backend.set_session(tf.Session(config=config))
     run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
-    evaluate_model(args.model, args.model_weights)
+    evaluate_model(args.model, args.model_weights, args.plot_result_flag)

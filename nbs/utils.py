@@ -105,9 +105,9 @@ class KittiPointCloudClass:
     """ 
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
-    def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG):
+    def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG, view):
         # get dataset
-        self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
+        self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True, view='bev')
         self.add_geometrical_features=add_geometrical_features #Flag
         self.subsample = subsample #Flag
         self.compute_HOG = compute_HOG  # Flag

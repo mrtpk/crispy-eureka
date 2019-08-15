@@ -1,8 +1,8 @@
 import os
 import numpy as np
-from calibration import Calibration
-from data_loaders import load_img, load_bin_file, get_image, get_dataset
-from calibration import get_lidar_in_image_fov
+from .calibration import Calibration
+from .data_loaders import load_img, load_bin_file, get_image, get_dataset
+from .calibration import get_lidar_in_image_fov
 
 def project_points_on_camera_img(points, img, calib):
     '''

@@ -18,6 +18,7 @@ from keras_custom_loss import jaccard2_loss
 import keras_contrib
 from helpers.sgdr import SGDRScheduler
 from helpers.lr_finder import LRFinder, get_lr_for_model
+from helpers.generate_pc_gt import generate_gt
 
 def test_all(model_name):
     """ 
@@ -198,13 +199,21 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
+def write_front_view_GT():
+    root_path = '../'
+    if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+        print('Writing ground truth for front view')
+        generate_gt(os.path.abspath())
+    return
 if __name__ == "__main__":
+    #ensure the front view ground truth exists
+    write_front_view_GT()
     
 #    test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
-
+    parser.add_argument('--view', default='bev', type=str, help='BEV or top view, different DNNs to choose based on view')
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
