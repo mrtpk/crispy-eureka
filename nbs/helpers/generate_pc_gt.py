@@ -65,8 +65,8 @@ def generate_point_cloud_gt(points, gt_img, gt_bev, calib):
         if points_to_cam_pxl[n, 0] > 0:
             cam_labels[n] = max(gt_img[points_to_cam_pxl[n, 0], points_to_cam_pxl[n, 1], 0] // 255, cam_labels[n])
 
-        if in_bev_img(points_to_bev_pxl[n], bev_shape) and (points[n,2] > -3):
-                bev_labels[n] = max(gt_bev[points_to_bev_pxl[n, 0], points_to_bev_pxl[n, 1], 0] // 255, bev_labels[n])
+        # if in_bev_img(points_to_bev_pxl[n], bev_shape) and (points[n,2] > -3):
+        #         bev_labels[n] = max(gt_bev[points_to_bev_pxl[n, 0], points_to_bev_pxl[n, 1], 0] // 255, bev_labels[n])
 
     labels = np.logical_or(cam_labels, bev_labels)
 
