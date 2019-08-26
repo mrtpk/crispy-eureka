@@ -5,7 +5,7 @@
 * New Deadline : [ML4AD - NeurIPS](https://ml4ad.github.io/), Sep. 17 2019, decision: Notification of acceptance Oct. 1, 
 
 
-#New Goals for Sep 10: 
+# New Goals for Sep 10: 
 - Evaluate accuracy w & w/o subsampling in front view with SqueezeNet, Unet, and ChipNet
 - Evaluate better data-augmentation (noise, peturbations, adding closings, or hole closings with morphological filtering)
 - Upload a few video outputs to demonstrate the output
