@@ -2,29 +2,23 @@ import os
 import cv2
 from time import time
 import numpy as np
-#import copy
-#import pathlib
 import datetime
 from helpers import data_loaders as dls
 from helpers import pointcloud as pc
-from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
 from helpers.calibration import get_lidar_in_image_fov
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import average_precision_score
-from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import PCA
 import keras
 from keras.callbacks import TensorBoard, EarlyStopping
-from tqdm import tqdm
-import multiprocessing as mp
-#memory cache now pre-evalutes get_feature functions. Attention if you change the code make sure you empty the cachefolder to re-evalaute these features.
-
-#from keras.callbacks import ModelCheckpoint, LearningRateScheduler
 
 
+# memory cache now pre-evalutes get_feature functions.
+# Attention if you change the code make sure you empty the cachefolder to re-evalaute these features.
 def get_unique_id():
     return datetime.datetime.today().strftime('%Y_%m_%d_%H_%M')
+
 
 def create_run_dir(path, run_id):
     path = path.replace("*run_id", str(run_id))
@@ -35,6 +29,7 @@ def create_run_dir(path, run_id):
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     return path
+
 
 def get_basic_callbacks(path):
     # tensorboard
@@ -58,12 +53,15 @@ def get_basic_callbacks(path):
 def apply_argmax(res):
     return 1 - np.argmax(res, axis=2)
 
+
 def get_z(points):
-#    return points[:,2].reshape(-1,1)
-    return np.array([np.min(points[:,2]), np.max(points[:,2])])
+    # return points[:,2].reshape(-1,1)
+    return np.array([np.min(points[:, 2]), np.max(points[:, 2])])
+
 
 def get_first_chan(points):
-    return points[:,:,0]
+    return points[:, :, 0]
+
 
 def measure_perf(path, all_pred, all_gt):
     result_path = "{}/output/*".format(path)
@@ -100,7 +98,8 @@ def measure_perf(path, all_pred, all_gt):
            "precision" : _precision,
            "F1" : _f1
            }
-    
+
+
 class KittiPointCloudClass:
     """ 
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
@@ -108,12 +107,12 @@ class KittiPointCloudClass:
     def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG, view):
         # get dataset
         self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True, view='bev')
-        self.add_geometrical_features=add_geometrical_features #Flag
-        self.subsample = subsample #Flag
+        self.add_geometrical_features = add_geometrical_features  # Flag
+        self.subsample = subsample  # Flag
         self.compute_HOG = compute_HOG  # Flag
         self.view = view
-        self.side_range=(-10, 10) #this is fixed here for KITTI
-        self.fwd_range=(6, 46) #this is fixed here for KITTI
+        self.side_range=(-10, 10)  # this is fixed here for KITTI
+        self.fwd_range=(6, 46)  # this is fixed here for KITTI
         self.res=.1
         self.res_planar = 300
         # todo we should change type of subsample parameter from boolean to integer
@@ -128,7 +127,7 @@ class KittiPointCloudClass:
             self.img_height = self.num_layers
             self.number_of_grids = self.img_width * self.img_height
 
-    def get_dataset(self, limit_index = 3):
+    def get_dataset(self, limit_index=3):
         print(self.train_set.keys())
         """ NOTE: change limit_index to -1 to train on the whole dataset """
         print('Reading cloud')
@@ -178,7 +177,8 @@ class KittiPointCloudClass:
             f_valid = dls.process_list(f_valid, subsample_pc)
             f_test = dls.process_list(f_test, subsample_pc)
             print('Evaluated in : '+repr(time()-t))
-        #Update with maximum points found within a cell to be used for normalization later
+
+        # Update with maximum points found within a cell to be used for normalization later
         print('Evaluating count')
         self.COUNT_MIN = 0 
         self.COUNT_MAX = []
@@ -245,11 +245,9 @@ class KittiPointCloudClass:
         # keep only points in the camera FOV
         points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
         # layers not filtered out
-        layers = points[:,-1].astype(int)
-        #get all features and normalize count channel
-        #f = self._get_features(points, img, calib)
-        #f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
-        #return f
+        layers = points[:, -1].astype(int)
+
+        # get all features and normalize count channel
         if self.view == 'bev':
             z = points[:, 2]
             z = (z - self.z_min) / (self.z_max - self.z_min)
@@ -273,7 +271,7 @@ class KittiPointCloudClass:
 
         if self.compute_HOG:
             # extract hog features from camera image
-            hog_features = get_HOG(points[:, :3], img, calib)
+            hog_features = get_hog(points[:, :3], img, calib)
             # project hog features over the image
             hog_features_map = project_features(hog_features, lidx, (self.img_height, self.img_width))
 
@@ -305,7 +303,6 @@ class KittiPointCloudClass:
         binned_count = np.bincount(lidx, count_input, minlength=self.number_of_grids)
         # sum reflectance
         binned_reflectance = np.bincount(lidx, r_lidar, minlength=self.number_of_grids)
-        # print(lidx.shape,lidx.max(),np.unique(lidx).shape, r_lidar.shape, self.number_of_grids, binned_reflectance.shape)
         # sum elevation
         binned_elevation = np.bincount(lidx, norm_z_lidar, minlength=self.number_of_grids)
 
@@ -360,14 +357,12 @@ class KittiPointCloudClass:
         '''
         Returns features of the point cloud as stacked grayscale images.
         Shape of the output is (400x200x6).
-        '''
-        # # calculate the image dimensions
-        # img_width = int((side_range[1] - side_range[0]) / res)
-        # img_height = int((fwd_range[1] - fwd_range[0]) / res)
-        # number_of_grids = img_height * img_width
-        # calculate the image dimensions
-        # number_of_grids = img_height * img_width
 
+        Parameters
+        ----------
+        points: ndarray
+            input point cloud
+        '''
         z_lidar = points[:, 2]
         norm_z_lidar = z_lidar  # assumed that the z values are normalised
         if self.view == 'bev':
@@ -390,11 +385,12 @@ def get_metrics_count(pred, gt):
     '''
     diff = pred - gt
     # get tp, tn, fp, fn
-    fn = diff[diff==-1].size
-    fp = diff[diff==1].size
-    tp = diff[gt==1].size - fn
-    tn = diff[diff==0].size - tp
+    fn = diff[diff == -1].size
+    fp = diff[diff == 1].size
+    tp = diff[gt == 1].size - fn
+    tn = diff[diff == 0].size - tp
     return fn, fp, tp, tn
+
 
 def get_metrics(pred, gt):
     '''
@@ -415,10 +411,11 @@ def get_metrics(pred, gt):
 
     return f1, recall, precision, acc
 
+
 #Dataset utils
 def kitti_gt(img):
-    road = img[:, :, 0] / 255 # Road is encoded as 255 in the B plane
-    non_road = 1 - road # TODO: can we do this in training time?
+    road = img[:, :, 0] / 255  # Road is encoded as 255 in the B plane
+    non_road = 1 - road  # TODO: can we do this in training time?
     return np.dstack([road, non_road])
 
 
@@ -426,13 +423,32 @@ def kitti_gt(img):
 def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=False):
     '''
     New version of the function that computes the normals
-    :param points:
-    :param res_planar:
-    :param layers:
-    :param az:
-    :return:
-    '''
 
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud
+
+    res_planar: float
+        resolution along planar angle
+
+    num_layers: int
+        number of layers used
+
+    layers: ndarray
+        array containing for each point the id of the layer that did the acquisition
+
+    az: ndarray
+        array containing for each layer the mean value for the azimuthal angles
+
+    return_3d: bool
+        if True project back normals to 3D points
+
+    Returns
+    -------
+    normals: ndarray
+        array containing estimated normals
+    '''
     from skimage.morphology import dilation, square
 
     img_width = np.ceil(np.pi * res_planar).astype(int)
@@ -452,7 +468,7 @@ def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=
         azimuthal_angles = np.arccos(z / np.sqrt(x**2 + y ** 2))
         az = np.zeros(num_layers)
         for n in range(num_layers):
-            az[n] = azimuthal_angles[layers==n].mean()
+            az[n] = azimuthal_angles[layers == n].mean()
 
     I = layers
     J = np.floor(planar_angles * res_planar).astype(int)
@@ -465,14 +481,14 @@ def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=
     # dilate rho_image to fill empty cells
     dil_rho = dilation(rho_img, square(3))
 
-    rho_img[rho_img==0] = dil_rho[rho_img==0]
+    rho_img[rho_img == 0] = dil_rho[rho_img == 0]
 
     normals = estimate_normals_from_spherical_img(rho_img, az=az, res_rho=1, res_planar=res_planar)
     # estimate normals
 
     if return_3d:
         # if return 3d we back project normals to 3d point cloud
-        normals_3d = np.zeros_like(points[:,:3])
+        normals_3d = np.zeros_like(points[:, :3])
         for n in range(len(normals_3d)):
             normals_3d[n] = normals[I[n], J[n]]
 
@@ -481,39 +497,6 @@ def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=
     # else we return the front view image
     return np.abs(normals)
 
-# def get_normals(points, res_az=100, res_planar=300):
-#     '''
-#     Estimate surface normals on spherical image
-#
-#     # azimuthal resolution --> defines spherical image height
-#     res_az = 100
-#
-#     # planar resolution --> defines spherical image width
-#     res_planar = 300
-#     '''
-#     from skimage.morphology import dilation, square
-#
-#     # initializing projector
-#     proj = Projection(proj_type='spherical', res_azimuthal=res_az, res_planar=res_planar)
-#
-#     # on spherical image we project points lenght
-#     values = np.linalg.norm(points, axis=1)
-#
-#     # get spherical image
-#     rho_img = proj.project_points_values(points, values, res_values=1, dtype=np.float)
-#
-#     # dilate spherical image to interpolate information where no points is projected
-#     dil_rho = dilation(rho_img, square(3))
-#
-#     rho_img[rho_img==0] = dil_rho[rho_img==0]
-#
-#     # image that contains normals
-#     normals = estimate_normals_from_spherical_img(rho_img, res_planar=res_planar, res_az=res_az, res_rho=1)
-#
-#     # project back normals to point cloud
-#     pc_normals = proj.back_project(points, np.abs(normals), res_value=1, dtype=np.float)
-#
-#     return pc_normals
 
 def _get_lidx(points, side_range, fwd_range, res):
     # calculate the image dimensions
@@ -526,7 +509,7 @@ def _get_lidx(points, side_range, fwd_range, res):
     # MAPPING
     # Mappings from one point to grid 
     # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
-    x_img_mapping = (-y_lidar/res).astype(np.int32) # x axis is -y in LIDAR
+    x_img_mapping = (-y_lidar/res).astype(np.int32)  # x axis is -y in LIDAR
     y_img_mapping = (x_lidar/res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
 
     # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
@@ -539,6 +522,7 @@ def _get_lidx(points, side_range, fwd_range, res):
     
     return lidx, x_img_mapping, y_img_mapping
 
+
 def _get_spherical_lidx(points, res_planar, layers=None):
 
     if layers is None:
@@ -549,9 +533,9 @@ def _get_spherical_lidx(points, res_planar, layers=None):
     img_width = np.ceil(np.pi* res_planar).astype(int)
 
     # x coordinates
-    x = points[:,0]
+    x = points[:, 0]
     # y coordinates
-    y = points[:,1]
+    y = points[:, 1]
     # we need to invert orientation of y coordinates
     planar = np.arctan2(-y, x) + np.pi/2
     # x_img_mapping <--> J
@@ -562,6 +546,7 @@ def _get_spherical_lidx(points, res_planar, layers=None):
     lidx = (y_img_mapping * img_width) + x_img_mapping
 
     return lidx, x_img_mapping, y_img_mapping
+
 
 def project_features(features, lidx, img_shape, aggregate_func='mean'):
     '''
@@ -578,20 +563,20 @@ def project_features(features, lidx, img_shape, aggregate_func='mean'):
         features = np.atleast_2d(features).T
 
     # auxiliary vector to compute binned_count
-    count_input = np.ones_like(features[:,0])
+    count_input = np.ones_like(features[:, 0])
 
     binned_count = np.bincount(lidx, count_input, minlength=nr*nc)
 
     # initialize binned_feature map
-    binned_features = np.zeros((nr*nc,features.shape[1]))
+    binned_features = np.zeros((nr*nc, features.shape[1]))
 
     # summing features
     for i in range(features.shape[1]):
-        binned_features[:,i] = np.bincount(lidx, features[:,i], minlength=nr*nc)
+        binned_features[:, i] = np.bincount(lidx, features[:, i], minlength=nr*nc)
         # TODO: add other aggregation functions
         if aggregate_func == 'mean':
             # for each cell we compute mean value of the features in cell
-            binned_features[:,i] = np.divide(binned_features[:,i], binned_count, out=np.zeros_like(binned_count),
+            binned_features[:, i] = np.divide(binned_features[:, i], binned_count, out=np.zeros_like(binned_count),
                                              where=binned_count!=0.0)
 
     # reshape binned_features to feature map
@@ -606,8 +591,7 @@ def project_points_on_img(points, img, calib):
     Function that  project point cloud on fron view image and retrieve RGB information
     '''
     height, width = img.shape[:2]
-    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
-                                                                return_more=True)
+    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height, return_more=True)
     # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
     velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
     points_to_pxls = -1 * np.ones((len(points), 2), dtype=int)
@@ -615,31 +599,32 @@ def project_points_on_img(points, img, calib):
 
     return points_to_pxls
 
-def get_HOG(points, img, calib):
+
+def get_hog(points, img, calib):
     '''
     A basic function that compute HOG features on the front image
     '''
     points_to_pxls = project_points_on_img(points, img, calib)
 
     # hardcoded parameters for HOGDescriptor
-    winSize = (64, 64)
-    blockSize = (16, 16)
-    blockStride = (8, 8)
-    cellSize = (8, 8)
+    win_size = (64, 64)
+    block_size = (16, 16)
+    block_stride = (8, 8)
+    cell_size = (8, 8)
     nbins = 9
-    derivAperture = 1
-    winSigma = 4.
-    histogramNormType = 0
-    L2HysThreshold = 2.0000000000000001e-01
-    gammaCorrection = 0
+    deriv_aperture = 1
+    win_sigma = 4.
+    histogram_norm_type = 0
+    l2_hys_threshold = 2.0000000000000001e-01
+    gamma_correction = 0
     nlevels = 64
 
-    num_features = nbins * ( (winSize[0] // cellSize[0] - 1) * (winSize[1] // cellSize[1] - 1) * 4)
+    num_features = nbins * ((win_size[0] // cell_size[0] - 1) * (win_size[1] // cell_size[1] - 1) * 4)
 
-    hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins, derivAperture, winSigma,
-                            histogramNormType, L2HysThreshold, gammaCorrection, nlevels)
+    hog = cv2.HOGDescriptor(win_size, block_size, block_stride, cell_size, nbins, deriv_aperture, win_sigma,
+                            histogram_norm_type, l2_hys_threshold, gamma_correction, nlevels)
     # compute(img[, winStride[, padding[, locations]]]) -> descriptors
-    winStride = (8, 8)
+    win_stride = (8, 8)
     padding = (8, 8)
 
     # padding img to compute HOG features
@@ -650,9 +635,9 @@ def get_HOG(points, img, calib):
 
     idx = points_to_pxls[:, 0] >= 0  # getting idx of points projected on img
     # retrieve location for each point
-    locations = tuple([tuple(x) for x in (points_to_pxls[idx] +  np.array(padding)).tolist()])
+    locations = tuple([tuple(x) for x in (points_to_pxls[idx] + np.array(padding)).tolist()])
     # compute histogram
-    hist = hog.compute(pad_img, winStride, padding, locations)
+    hist = hog.compute(pad_img, win_stride, padding, locations)
 
     # reshape hist vector to associate at each point its HOG vector
     hist = hist.reshape((-1, num_features), order='F')
@@ -672,8 +657,10 @@ def get_HOG(points, img, calib):
 
     return hog_features
 
+
 def retrieve_layers(points):
-    '''Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
+    '''
+    Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
     And each layer is stocked in a clockwise (or anticlockwise) fashion.
     '''
     x = points[:, 0]
@@ -709,35 +696,59 @@ def retrieve_layers(points):
 
     return layers
 
+
 def subsample_pc(points, sub_ratio=2):
     '''
-    Return sub sampled point cloud
+Return sub sampled point cloud
+
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud
+
+    sub_ratio: int
+        ratio to use to subsample point cloud
+
+    Returns
+    -------
+    points: ndarray
+        subsampled pointcloud
     '''
     layers = retrieve_layers(points)
 
     # sampling only points with even id
     return points[layers % sub_ratio == 0]
 
-def get_RGB(points, img, calib):
+
+def get_rgb(points, img, calib):
     '''
     Function that  project point cloud on fron view image and retrieve RGB information
-    #TODO : Is this function unused?
+
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud
+    img: ndarray
+        camera image
+    calib: Calibration
+        calibration object used to associate points to pixels in img
     '''
+
+    # TODO : Is this function unused?
     height, width = img.shape[:2]
 
-    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
-                                                                return_more=True)
+    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height, return_more=True)
 
     # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
     velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
 
     # for each point in FOV of the image we retrieve the value of the pixel corresponding to the point
-    back_RGB = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
+    back_rgb = img[velo_to_pxls[:, 1], velo_to_pxls[:, 0]]
 
     # initialize RGB feature vector
-    RGB = np.zeros((len(points), 3))
+    rgb = np.zeros((len(points), 3))
 
     # for points in the FOV we assign RGB values
-    RGB[fov_inds] = back_RGB
+    rgb[fov_inds] = back_rgb
 
-    return RGB
+    return rgb
