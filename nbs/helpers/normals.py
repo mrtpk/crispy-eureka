@@ -2,7 +2,7 @@ import numpy as np
 
 
 # utils functions returning cos and sinus for planar and azimuthal angle
-def _cos_az_grid(shape, res_az):
+def _cos_az_grid(shape, az):
     """
     Given an input shape n,m this function builds a grid of n,m where the value of grid[i,j] = cos(i/res_az)
 
@@ -20,11 +20,11 @@ def _cos_az_grid(shape, res_az):
     cos_grid: ndarray
         Grid containing cos of the azimuthal angles
     """
-    cos_az = np.repeat(np.arange(shape[0]), shape[1]).reshape(shape) / res_az
+    cos_az = np.repeat(az, shape[1]).reshape(shape)
     return np.cos(cos_az)
 
 
-def _sin_az_grid(shape, res_az):
+def _sin_az_grid(shape, az):
     """
     Given an input shape n,m this function builds a grid of n,m where the value of grid[i,j] = sin(i/res_az)
 
@@ -42,7 +42,7 @@ def _sin_az_grid(shape, res_az):
     sin_grid: ndarray
         Grid containing sin of the azimuthal angles
     """
-    sin_az = np.repeat(np.arange(shape[0]), shape[1]).reshape(shape) / res_az
+    sin_az = np.repeat(az, shape[1]).reshape(shape)
     return np.sin(sin_az)
 
 
@@ -64,7 +64,7 @@ def _sin_pl_grid(shape, res_planar):
         Grid containing cosinus of the planar angles
     """
 
-    sin_pl = np.tile(np.arange(shape[1]), (shape[0], 1)) / res_planar + np.pi
+    sin_pl = np.tile(np.arange(shape[1]), (shape[0], 1)) / res_planar + (np.pi / 2)
     return np.sin(sin_pl)
 
 
@@ -86,7 +86,7 @@ def _cos_pl_grid(shape, res_planar):
     cos_grid: ndarray
         Grid containing cos of the planar angles
     """
-    cos_pl = np.tile(np.arange(shape[1]), (shape[0], 1)) / res_planar + np.pi
+    cos_pl = np.tile(np.arange(shape[1]), (shape[0], 1)) / res_planar + (np.pi / 2)
     return np.cos(cos_pl)
 
 
@@ -213,7 +213,7 @@ def _planar_rho_derivative(img, res_rho):
     return (left.astype(np.float64) - right.astype(np.float64)) / (2 * res_rho)
 
 
-def azimuthal_derivative(img, res_rho, res_az, res_planar):
+def azimuthal_derivative(img, az, res_rho, res_planar):
     """
 
     Parameters
@@ -224,8 +224,8 @@ def azimuthal_derivative(img, res_rho, res_az, res_planar):
     res_rho: float
         Resolution of the rho coordinate
 
-    res_az: float
-        Resolution of the azimuthal coordinate
+    az: float
+        az_centers
 
     res_planar: float
         Resolution of the planar coordinate
@@ -240,8 +240,8 @@ def azimuthal_derivative(img, res_rho, res_az, res_planar):
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_az = _cos_az_grid((nr, nc), res_az)
-    sin_az = _sin_az_grid((nr, nc), res_az)
+    cos_az = _cos_az_grid((nr, nc), az)
+    sin_az = _sin_az_grid((nr, nc), az)
     cos_pl = _cos_pl_grid((nr, nc), res_planar)
     sin_pl = _sin_pl_grid((nr, nc), res_planar)
 
@@ -252,16 +252,16 @@ def azimuthal_derivative(img, res_rho, res_az, res_planar):
     _az_derivative_ = np.zeros((nr, nc, 3))
 
     # derivative along x
-    _az_derivative_[:, :, 0] = diff_rho * sin_az * cos_pl + (rho / res_az) * cos_az * cos_pl
+    _az_derivative_[:, :, 0] = diff_rho * sin_az * cos_pl + (rho / len(az)) * cos_az * cos_pl
     # derivative along y
-    _az_derivative_[:, :, 1] = diff_rho * sin_az * sin_pl + (rho / res_az) * cos_az * sin_pl
+    _az_derivative_[:, :, 1] = diff_rho * sin_az * sin_pl + (rho / len(az)) * cos_az * sin_pl
     # derivative along z
-    _az_derivative_[:, :, 2] = diff_rho * cos_az - (rho / res_az) * sin_az
+    _az_derivative_[:, :, 2] = diff_rho * cos_az - (rho / len(az)) * sin_az
 
     return _az_derivative_
 
 
-def planar_derivative(img, res_rho, res_az, res_planar):
+def planar_derivative(img, az, res_rho, res_planar):
     """
 
     Parameters
@@ -288,8 +288,8 @@ def planar_derivative(img, res_rho, res_az, res_planar):
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_az = _cos_az_grid((nr, nc), res_az)
-    sin_az = _sin_az_grid((nr, nc), res_az)
+    cos_az = _cos_az_grid((nr, nc), az)
+    sin_az = _sin_az_grid((nr, nc), az)
     cos_pl = _cos_pl_grid((nr, nc), res_planar)
     sin_pl = _sin_pl_grid((nr, nc), res_planar)
 
@@ -309,7 +309,7 @@ def planar_derivative(img, res_rho, res_az, res_planar):
     return _pl_derivative_
 
 
-def estimate_normals_from_spherical_img(img, res_rho, res_az, res_planar):
+def estimate_normals_from_spherical_img(img, az, res_rho, res_planar):
     """
     Function that estimates point cloud normals from a spherical img.
     It returns a nr x nc x 3 image such that for each pixel we have the estimated normal
@@ -319,14 +319,15 @@ def estimate_normals_from_spherical_img(img, res_rho, res_az, res_planar):
     img: ndarray
         input image
 
+    az: float
+        azimuthal angles
+
     res_rho: float
         Resolution of coordinate rho
 
     res_planar: float
         resolution of coordinate planar
 
-    res_az: float
-        resolution of coordinate azimuthal
 
     Returns
     -------
@@ -334,8 +335,8 @@ def estimate_normals_from_spherical_img(img, res_rho, res_az, res_planar):
         matrix that at position i,j contains the normal inferred for pixel i,j
     """
 
-    az_deriv = azimuthal_derivative(img, res_rho=res_rho, res_az=res_az, res_planar=res_planar)
-    pl_deriv = planar_derivative(img, res_rho=res_rho, res_az=res_az, res_planar=res_planar)
+    az_deriv = azimuthal_derivative(img, res_rho=res_rho, az=az, res_planar=res_planar)
+    pl_deriv = planar_derivative(img, res_rho=res_rho, az=az, res_planar=res_planar)
 
     vr = np.cross(az_deriv, pl_deriv)
     vr_lenght = np.linalg.norm(vr, axis=2)
@@ -345,6 +346,6 @@ def estimate_normals_from_spherical_img(img, res_rho, res_az, res_planar):
         vr[idx, i] = np.divide(vr[idx, i], vr_lenght[idx])
 
     # we remove normals where we do not have information
-    vr[img==0] = [0,0,0]
+    vr[img == 0] = [0, 0, 0]
 
     return vr
