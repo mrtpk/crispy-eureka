@@ -246,7 +246,6 @@ class KittiPointCloudClass:
         points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
         # layers not filtered out
         layers = points[:,-1].astype(int)
-        print(layers)
         #get all features and normalize count channel
         #f = self._get_features(points, img, calib)
         #f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
