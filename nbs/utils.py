@@ -111,13 +111,22 @@ class KittiPointCloudClass:
         self.add_geometrical_features=add_geometrical_features #Flag
         self.subsample = subsample #Flag
         self.compute_HOG = compute_HOG  # Flag
+        self.view = view
         self.side_range=(-10, 10) #this is fixed here for KITTI
         self.fwd_range=(6, 46) #this is fixed here for KITTI
         self.res=.1
+        self.res_planar = 300
+        # todo we should change type of subsample parameter from boolean to integer
+        self.num_layers = 64 if subsample is False else 32
         # calculate the image dimensions
-        self.img_width = int((self.side_range[1] - self.side_range[0])/self.res)
-        self.img_height = int((self.fwd_range[1] - self.fwd_range[0])/self.res)
-        self.number_of_grids = self.img_height * self.img_width
+        if self.view == 'bev':
+            self.img_width = int((self.side_range[1] - self.side_range[0])/self.res)
+            self.img_height = int((self.fwd_range[1] - self.fwd_range[0])/self.res)
+            self.number_of_grids = self.img_height * self.img_width
+        else:
+            self.img_width = np.ceil(np.pi * self.res_planar).astype(int)
+            self.img_height = self.num_layers
+            self.number_of_grids = self.img_width * self.img_height
 
     def get_dataset(self, limit_index = 3):
         print(self.train_set.keys())
@@ -176,7 +185,7 @@ class KittiPointCloudClass:
         for _f in f_train+f_test:
             _filtered = pc.filter_points(_f, side_range=self.side_range, 
                                          fwd_range=self.fwd_range)
-            f_count = get_count_features(_filtered, self.side_range, self.fwd_range, self.res)
+            f_count = self.get_count_features(_filtered)
             self.COUNT_MAX.append(int(np.max(f_count)))
         self.COUNT_MAX = max(self.COUNT_MAX)
         print("Count varies from {} to {}".format(self.COUNT_MIN, self.COUNT_MAX))    
@@ -187,7 +196,6 @@ class KittiPointCloudClass:
         f_cam_calib_train = [(f_t, img, calib) for f_t, img, calib in zip(f_train, cam_img_train, cal_train)]
         f_cam_calib_valid = [(f_t, img, calib) for f_t, img, calib in zip(f_valid, cam_img_valid, cal_valid)]
         f_cam_calib_test = [(f_t, img, calib) for f_t, img, calib in zip(f_test, cam_img_test, cal_test)]
-
 
         f_train = dls.process_list(f_cam_calib_train, self.get_features)
         f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
@@ -215,65 +223,167 @@ class KittiPointCloudClass:
         points = raw_info[0]
         img = raw_info[1]
         calib = raw_info[2]
-        points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
-        z = points[:, 2]
-        z = (z - self.z_min)/(self.z_max - self.z_min)
-        points[:, 2] = z
+        # vector containing for each point the id of the layer that captured the point
+        layers = retrieve_layers(points[:,:3])
+        unique = np.unique(layers)
 
+        # coordiantes of the points
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+        # radial distance from scanner
+        radial = np.square( x**2 + y**2 )
+        # azimuthal angles of the points
+        az_angles = np.arccos(z / radial)
+        # todo: check the case of a sub sampled point cloud
+        az_means = np.zeros(len(unique))
+        for n in unique:
+            az_means[n] = az_angles[layers==n].mean()
+
+        # adding to point cloud information about layers
+        points = np.c_[points, layers]
+        # keep only points in the camera FOV
+        points = pc.filter_points(points, side_range=self.side_range, fwd_range=self.fwd_range)
+        # layers not filtered out
+        layers = points[:,-1].astype(int)
+        print(layers)
         #get all features and normalize count channel
         #f = self._get_features(points, img, calib)
         #f[:, :, 0] = f[:, :, 0] / self.COUNT_MAX
         #return f
+        if self.view == 'bev':
+            z = points[:, 2]
+            z = (z - self.z_min) / (self.z_max - self.z_min)
+            points[:, 2] = z
 
-        out_feature_map, lidx, binned_count = get_classical_features(points, self.side_range, self.fwd_range, self.res)
-
+            out_feature_map, lidx, binned_count = self.get_classical_features(points, self.side_range, self.fwd_range,
+                                                                              self.res, layers)
+        else:
+            out_feature_map, lidx, binned_count = self.get_classical_features(points, self.side_range, self.fwd_range,
+                                                                              self.res_planar, layers)
         if self.add_geometrical_features:
-            if self.subsample:
-                res_az = 50
-            else:
-                res_az = 100
             # estimate normals
-            normals = get_normals(points[:, :3], res_az=res_az, res_planar=300)
+            # normals = get_normals(points[:, :3], res_az=res_az, res_planar=300)
+            if self.view == 'bev':
+                normals = get_normals(points, self.res_planar, self.num_layers, layers, az_means, return_3d=True)
+                normals_feature_map = project_features(normals, lidx, (self.img_height, self.img_width))
+            else:
+                normals_feature_map = get_normals(points, self.res_planar, self.num_layers, layers, az_means)
 
-            nx_lidar = normals[:, 0]
-            ny_lidar = normals[:, 1]
-            nz_lidar = normals[:, 2]
-
-            # sum normals
-            binned_nx = np.bincount(lidx, nx_lidar, minlength=self.number_of_grids)
-            binned_ny = np.bincount(lidx, ny_lidar, minlength=self.number_of_grids)
-            binned_nz = np.bincount(lidx, nz_lidar, minlength=self.number_of_grids)
-
-            binned_mean_nx = np.divide(binned_nx, binned_count, out=np.zeros_like(binned_nx), where=binned_count != 0.0)
-            binned_mean_ny = np.divide(binned_ny, binned_count, out=np.zeros_like(binned_ny), where=binned_count != 0.0)
-            binned_mean_nz = np.divide(binned_nz, binned_count, out=np.zeros_like(binned_nz), where=binned_count != 0.0)
-
-            o_mean_nx = binned_mean_nx.reshape(self.img_height, self.img_width)
-            o_mean_ny = binned_mean_ny.reshape(self.img_height, self.img_width)
-            o_mean_nz = binned_mean_nz.reshape(self.img_height, self.img_width)
-
-            out_feature_map = np.dstack([out_feature_map,
-                                        o_mean_nx,
-                                        o_mean_ny,
-                                        o_mean_nz])
+            out_feature_map = np.dstack([out_feature_map, normals_feature_map])
 
         if self.compute_HOG:
             # extract hog features from camera image
-            hog_features = get_HOG(points[:,:3], img, calib)
-
-            hog_features_map = np.zeros((self.img_height, self.img_width, hog_features.shape[1]))
-
-            for i in range(hog_features.shape[1]):
-                binned_i = np.bincount(lidx, hog_features[:,i], minlength=self.number_of_grids)
-                binned_mean_i = np.divide(binned_i, binned_count, out=np.zeros_like(binned_i), where=binned_count != 0.0)
-                hog_features_map[:,:,i] = binned_mean_i.reshape(self.img_height, self.img_width)
+            hog_features = get_HOG(points[:, :3], img, calib)
+            # project hog features over the image
+            hog_features_map = project_features(hog_features, lidx, (self.img_height, self.img_width))
 
             out_feature_map = np.dstack([out_feature_map, hog_features_map])
 
-        #cell count normalization
-        out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX 
+        # cell count normalization
+        out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX
 
         return out_feature_map
+
+    def get_classical_features(self, points, side_range, fwd_range, res, layers):
+        # calculate the image dimensions
+        # img_width = int((side_range[1] - side_range[0]) / res)
+        # img_height = int((fwd_range[1] - fwd_range[0]) / res)
+        # number_of_grids = img_height * img_width
+
+        z_lidar = points[:, 2]
+        r_lidar = points[:, 3]
+
+        norm_z_lidar = z_lidar  # assumed that the z values are normalised
+
+        if self.view == 'bev':
+            lidx, x_img_mapping, y_img_mapping = _get_lidx(points, side_range, fwd_range, res)
+        else:
+            lidx, x_img_mapping, y_img_mapping = _get_spherical_lidx(points, res, layers)
+        # Feature extraction
+        # count of points per grid
+        count_input = np.ones_like(norm_z_lidar)
+        binned_count = np.bincount(lidx, count_input, minlength=self.number_of_grids)
+        # sum reflectance
+        binned_reflectance = np.bincount(lidx, r_lidar, minlength=self.number_of_grids)
+        # print(lidx.shape,lidx.max(),np.unique(lidx).shape, r_lidar.shape, self.number_of_grids, binned_reflectance.shape)
+        # sum elevation
+        binned_elevation = np.bincount(lidx, norm_z_lidar, minlength=self.number_of_grids)
+
+        # Finding mean!
+        binned_mean_reflectance = np.divide(binned_reflectance, binned_count, out=np.zeros_like(binned_reflectance),
+                                            where=binned_count != 0.0)
+        binned_mean_elevation = np.divide(binned_elevation, binned_count, out=np.zeros_like(binned_elevation),
+                                          where=binned_count != 0.0)
+        o_mean_elevation = binned_mean_elevation.reshape(self.img_height, self.img_width)
+
+        # Standard deviation stuff
+        if self.view == 'bev':
+            binned_sum_var_elevation = np.bincount(lidx, np.square(
+                norm_z_lidar - o_mean_elevation[-y_img_mapping, x_img_mapping]), minlength=self.number_of_grids)
+        else:
+            binned_sum_var_elevation = np.bincount(lidx, np.square(
+                norm_z_lidar - o_mean_elevation[y_img_mapping, x_img_mapping]), minlength=self.number_of_grids)
+
+        binned_divide = np.divide(binned_sum_var_elevation, binned_count, out=np.zeros_like(binned_sum_var_elevation),
+                                  where=binned_count != 0.0)
+        binned_std_elevation = np.sqrt(binned_divide)
+
+        # minimum and maximum
+        sidx = lidx.argsort()
+        idx = lidx[sidx]
+        val = norm_z_lidar[sidx]
+
+        m_idx = np.flatnonzero(np.r_[True, idx[:-1] != idx[1:]])
+        unq_ids = idx[m_idx]
+
+        o_max_elevation = np.zeros([self.img_height, self.img_width], dtype=np.float64)
+        o_min_elevation = np.zeros([self.img_height, self.img_width], dtype=np.float64)
+
+        o_max_elevation.flat[unq_ids] = np.maximum.reduceat(val, m_idx)
+        o_min_elevation.flat[unq_ids] = np.minimum.reduceat(val, m_idx)
+
+        norm_binned_count = binned_count  # normalise the output
+        # reshape all other things
+        o_count = norm_binned_count.reshape(self.img_height, self.img_width)
+        o_mean_reflectance = binned_mean_reflectance.reshape(self.img_height, self.img_width)
+        o_std_elevation = binned_std_elevation.reshape(self.img_height, self.img_width)
+
+        out_feature_map = np.dstack([o_count,
+                                     o_mean_reflectance,
+                                     o_max_elevation,
+                                     o_min_elevation,
+                                     o_mean_elevation,
+                                     o_std_elevation])
+        return out_feature_map, lidx, binned_count
+
+    def get_count_features(self, points):
+        '''
+        Returns features of the point cloud as stacked grayscale images.
+        Shape of the output is (400x200x6).
+        '''
+        # # calculate the image dimensions
+        # img_width = int((side_range[1] - side_range[0]) / res)
+        # img_height = int((fwd_range[1] - fwd_range[0]) / res)
+        # number_of_grids = img_height * img_width
+        # calculate the image dimensions
+        # number_of_grids = img_height * img_width
+
+        z_lidar = points[:, 2]
+        norm_z_lidar = z_lidar  # assumed that the z values are normalised
+        if self.view == 'bev':
+            lidx, _, _ = _get_lidx(points, self.side_range, self.fwd_range, self.res)
+        else:
+            lidx, _, _ = _get_spherical_lidx(points, self.res_planar)
+        # Feature extraction
+        # count of points per grid
+        count_input = np.ones_like(norm_z_lidar)
+        binned_count = np.bincount(lidx, count_input, minlength=self.number_of_grids)
+        norm_binned_count = binned_count  # normalise the output
+        # reshape all other things
+        o_count = norm_binned_count.reshape(self.img_height, self.img_width)
+        return o_count
+
 
 def get_metrics_count(pred, gt):
     '''
@@ -299,12 +409,12 @@ def get_metrics(pred, gt):
     
     F1/2 = (precision * recall)/(precision + recall)
     '''
-    
     acc = accuracy_score(gt, pred)
     recall = recall_score(gt, pred, average='micro')
     precision = precision_score(gt, pred, average='micro')
     f1 = f1_score(gt, pred, average='micro')
-    return f1, recall, precision, acc 
+
+    return f1, recall, precision, acc
 
 #Dataset utils
 def kitti_gt(img):
@@ -312,43 +422,99 @@ def kitti_gt(img):
     non_road = 1 - road # TODO: can we do this in training time?
     return np.dstack([road, non_road])
 
+
 # to add, get ground truth from lodnn dataset
-
-def get_normals(points, res_az=100, res_planar=300):
+def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=False):
     '''
-    Estimate surface normals on spherical image
-
-    # azimuthal resolution --> defines spherical image height
-    res_az = 100
-
-    # planar resolution --> defines spherical image width
-    res_planar = 300
-
+    New version of the function that computes the normals
+    :param points:
+    :param res_planar:
+    :param layers:
+    :param az:
+    :return:
     '''
+
     from skimage.morphology import dilation, square
 
+    img_width = np.ceil(np.pi * res_planar).astype(int)
+    img_height = num_layers
 
-    # initializing projector
-    proj = Projection(proj_type='spherical', res_azimuthal=res_az, res_planar=res_planar)
+    if layers is None:
+        layers = retrieve_layers(points)
 
-    # on spherical image we project points lenght
-    values = np.linalg.norm(points, axis=1)
+    # project point cloud to front view image
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
 
-    # get spherical image
-    rho_img = proj.project_points_values(points, values, res_values=1, dtype=np.float)
+    planar_angles = np.arctan2(-y, x) + np.pi / 2
+    radial_dist = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    if az is None:
+        azimuthal_angles = np.arccos(z / np.sqrt(x**2 + y ** 2))
+        az = np.zeros(num_layers)
+        for n in range(num_layers):
+            az[n] = azimuthal_angles[layers==n].mean()
 
-    # dilate spherical image to interpolate information where no points is projected
+    I = layers
+    J = np.floor(planar_angles * res_planar).astype(int)
+    # initialize image
+    rho_img = np.zeros((img_height, img_width))
+    # assign values to rho_img
+    for n in range(len(points)):
+        rho_img[I[n], J[n]] = max(rho_img[I[n],J[n]],radial_dist[n])
+
+    # dilate rho_image to fill empty cells
     dil_rho = dilation(rho_img, square(3))
 
     rho_img[rho_img==0] = dil_rho[rho_img==0]
 
-    # image that contains normals
-    normals = estimate_normals_from_spherical_img(rho_img, res_planar=res_planar, res_az=res_az, res_rho=1)
+    normals = estimate_normals_from_spherical_img(rho_img, az=az, res_rho=1, res_planar=res_planar)
+    # estimate normals
 
-    # project back normals to point cloud
-    pc_normals = proj.back_project(points, np.abs(normals), res_value=1, dtype=np.float)
+    if return_3d:
+        # if return 3d we back project normals to 3d point cloud
+        normals_3d = np.zeros_like(points[:,:3])
+        for n in range(len(normals_3d)):
+            normals_3d[n] = normals[I[n], J[n]]
 
-    return pc_normals
+        return normals_3d
+
+    # else we return the front view image
+    return np.abs(normals)
+
+# def get_normals(points, res_az=100, res_planar=300):
+#     '''
+#     Estimate surface normals on spherical image
+#
+#     # azimuthal resolution --> defines spherical image height
+#     res_az = 100
+#
+#     # planar resolution --> defines spherical image width
+#     res_planar = 300
+#     '''
+#     from skimage.morphology import dilation, square
+#
+#     # initializing projector
+#     proj = Projection(proj_type='spherical', res_azimuthal=res_az, res_planar=res_planar)
+#
+#     # on spherical image we project points lenght
+#     values = np.linalg.norm(points, axis=1)
+#
+#     # get spherical image
+#     rho_img = proj.project_points_values(points, values, res_values=1, dtype=np.float)
+#
+#     # dilate spherical image to interpolate information where no points is projected
+#     dil_rho = dilation(rho_img, square(3))
+#
+#     rho_img[rho_img==0] = dil_rho[rho_img==0]
+#
+#     # image that contains normals
+#     normals = estimate_normals_from_spherical_img(rho_img, res_planar=res_planar, res_az=res_az, res_rho=1)
+#
+#     # project back normals to point cloud
+#     pc_normals = proj.back_project(points, np.abs(normals), res_value=1, dtype=np.float)
+#
+#     return pc_normals
 
 def _get_lidx(points, side_range, fwd_range, res):
     # calculate the image dimensions
@@ -374,90 +540,67 @@ def _get_lidx(points, side_range, fwd_range, res):
     
     return lidx, x_img_mapping, y_img_mapping
 
-def get_classical_features(points, side_range, fwd_range, res):
-    # calculate the image dimensions
-    img_width = int((side_range[1] - side_range[0])/res)
-    img_height = int((fwd_range[1] - fwd_range[0])/res)
-    number_of_grids = img_height * img_width
+def _get_spherical_lidx(points, res_planar, layers=None):
 
-    z_lidar = points[:, 2]
-    r_lidar = points[:, 3]
+    if layers is None:
+        # if we do not have information on layers we retrieve it
+        layers = retrieve_layers(points[:,:3])
 
-    norm_z_lidar = z_lidar # assumed that the z values are normalised
-    lidx, x_img_mapping, y_img_mapping = _get_lidx(points, side_range, fwd_range, res)
-    
-    # Feature extraction
-    # count of points per grid
-    count_input = np.ones_like(norm_z_lidar)
-    binned_count = np.bincount(lidx, count_input, minlength = number_of_grids)
-    # sum reflectance
-    binned_reflectance =  np.bincount(lidx, r_lidar, minlength = number_of_grids)
+    # number of columns in the image
+    img_width = np.ceil(np.pi* res_planar).astype(int)
 
-    # sum elevation 
-    binned_elevation = np.bincount(lidx, norm_z_lidar, minlength = number_of_grids)
+    # x coordinates
+    x = points[:,0]
+    # y coordinates
+    y = points[:,1]
+    # we need to invert orientation of y coordinates
+    planar = np.arctan2(-y, x) + np.pi/2
+    # x_img_mapping <--> J
+    x_img_mapping = np.floor(planar * res_planar).astype(int)
+    # y_img_mapping <--> I
+    y_img_mapping = layers
 
-    # Finding mean!
-    binned_mean_reflectance = np.divide(binned_reflectance, binned_count, out=np.zeros_like(binned_reflectance), where=binned_count!=0.0)
-    binned_mean_elevation = np.divide(binned_elevation, binned_count, out=np.zeros_like(binned_elevation), where=binned_count!=0.0)
-    o_mean_elevation = binned_mean_elevation.reshape(img_height, img_width)
+    lidx = (y_img_mapping * img_width) + x_img_mapping
 
-    # Standard devation stuff
-    binned_sum_var_elevation = np.bincount(lidx, np.square(norm_z_lidar - o_mean_elevation[-y_img_mapping, x_img_mapping]), minlength = number_of_grids)
-    binned_divide = np.divide(binned_sum_var_elevation, binned_count, out=np.zeros_like(binned_sum_var_elevation), where=binned_count!=0.0)
-    binned_std_elevation = np.sqrt(binned_divide)
+    return lidx, x_img_mapping, y_img_mapping
 
-    # minimum and maximum
-    sidx = lidx.argsort()
-    idx = lidx[sidx]
-    val = norm_z_lidar[sidx]
-
-    m_idx = np.flatnonzero(np.r_[True,idx[:-1] != idx[1:]])
-    unq_ids = idx[m_idx]
-
-    o_max_elevation = np.zeros([img_height, img_width], dtype=np.float64)
-    o_min_elevation = np.zeros([img_height, img_width], dtype=np.float64)
-
-    o_max_elevation.flat[unq_ids] = np.maximum.reduceat(val, m_idx)
-    o_min_elevation.flat[unq_ids] = np.minimum.reduceat(val, m_idx)
-
-    norm_binned_count = binned_count # normalise the output
-    # reshape all other things
-    o_count            = norm_binned_count.reshape(img_height, img_width)
-    o_mean_reflectance = binned_mean_reflectance.reshape(img_height, img_width)
-    o_std_elevation    = binned_std_elevation.reshape(img_height, img_width)
-    
-    out_feature_map = np.dstack([o_count,
-                                        o_mean_reflectance,
-                                        o_max_elevation,
-                                        o_min_elevation,
-                                        o_mean_elevation,
-                                        o_std_elevation])
-    return out_feature_map, lidx, binned_count
-
-def get_count_features(points, side_range, fwd_range, res):
+def project_features(features, lidx, img_shape, aggregate_func='mean'):
     '''
-    Returns features of the point cloud as stacked grayscale images.
-    Shape of the output is (400x200x6).
+    General function to compute features images
+    :param features:
+    :param lidx:
+    :param img_shape:
+    :param aggregate_func:
+    :return:
     '''
-    # calculate the image dimensions
-    img_width = int((side_range[1] - side_range[0])/res)
-    img_height = int((fwd_range[1] - fwd_range[0])/res)
-    number_of_grids = img_height * img_width
-    # calculate the image dimensions
-    number_of_grids = img_height*img_width
-    
-    z_lidar = points[:, 2]
-    norm_z_lidar = z_lidar # assumed that the z values are normalised
-    lidx, _, _ = _get_lidx(points, side_range, fwd_range, res)
-    
-    # Feature extraction
-    # count of points per grid
-    count_input = np.ones_like(norm_z_lidar)
-    binned_count = np.bincount(lidx, count_input, minlength = number_of_grids)        
-    norm_binned_count = binned_count # normalise the output
-    # reshape all other things
-    o_count            = norm_binned_count.reshape(img_height, img_width)
-    return o_count
+    nr, nc = img_shape[:2]
+    # if features is a 1 dimensional vector we augment its dimension
+    if len(features.shape) < 2:
+        features = np.atleast_2d(features).T
+
+    # auxiliary vector to compute binned_count
+    count_input = np.ones_like(features[:,0])
+
+    binned_count = np.bincount(lidx, count_input, minlength=nr*nc)
+
+    # initialize binned_feature map
+    binned_features = np.zeros((nr*nc,features.shape[1]))
+
+    # summing features
+    for i in range(features.shape[1]):
+        binned_features[:,i] = np.bincount(lidx, features[:,i], minlength=nr*nc)
+        # TODO: add other aggregation functions
+        if aggregate_func == 'mean':
+            # for each cell we compute mean value of the features in cell
+            binned_features[:,i] = np.divide(binned_features[:,i], binned_count, out=np.zeros_like(binned_count),
+                                             where=binned_count!=0.0)
+
+    # reshape binned_features to feature map
+    binned_feature_map = binned_features.reshape((nr, nc, features.shape[1]))
+
+    # return binned_feature_map
+    return binned_feature_map
+
 
 def project_points_on_img(points, img, calib):
     '''
