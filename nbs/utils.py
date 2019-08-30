@@ -104,7 +104,7 @@ class KittiPointCloudClass:
     """ 
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
-    def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG, view):
+    def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG, view, subsample_ratio=1):
         # get dataset
         self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True, view='bev')
         self.add_geometrical_features = add_geometrical_features  # Flag
@@ -116,7 +116,13 @@ class KittiPointCloudClass:
         self.res=.1
         self.res_planar = 300
         # todo we should change type of subsample parameter from boolean to integer
-        self.num_layers = 64 if subsample is False else 32
+        self.subsample_ratio = 1
+
+        if self.subsample:  # in  case we subsample we fix sub_sample ratio bigger than 1
+            self.subsample_ratio = 2 if subsample_ratio == 1 else subsample_ratio
+
+        self.num_layers = 64 // self.subsample_ratio
+
         # calculate the image dimensions
         if self.view == 'bev':
             self.img_width = int((self.side_range[1] - self.side_range[0])/self.res)
@@ -173,9 +179,9 @@ class KittiPointCloudClass:
         if self.subsample:
             print('Read and Subsample cloud')
             t = time()
-            f_train = dls.process_list(f_train, subsample_pc)
-            f_valid = dls.process_list(f_valid, subsample_pc)
-            f_test = dls.process_list(f_test, subsample_pc)
+            f_train = dls.process_list(f_train, subsample_pc, sub_ratio=self.subsample_ratio)
+            f_valid = dls.process_list(f_valid, subsample_pc, sub_ratio=self.subsample_ratio)
+            f_test = dls.process_list(f_test, subsample_pc, sub_ratio=self.subsample_ratio)
             print('Evaluated in : '+repr(time()-t))
 
         # Update with maximum points found within a cell to be used for normalization later
