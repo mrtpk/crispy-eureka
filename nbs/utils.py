@@ -202,14 +202,16 @@ class KittiPointCloudClass:
         f_test = dls.process_list(f_cam_calib_test, self.get_features)
         print('Evaluated in : '+repr(time()-t))
 
+        gt_key = 'gt_bev' if self.view == 'bev' else 'gt_front'
+
         if limit_index > 0:
-            gt_train = dls.process_img(self.train_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
-            gt_valid = dls.process_img(self.valid_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
-            gt_test = dls.process_img(self.test_set["gt_bev"][0:limit_index], func=lambda x: kitti_gt(x))
+            gt_train = dls.process_img(self.train_set[gt_key][0:limit_index], func=lambda x: kitti_gt(x))
+            gt_valid = dls.process_img(self.valid_set[gt_key][0:limit_index], func=lambda x: kitti_gt(x))
+            gt_test = dls.process_img(self.test_set[gt_key][0:limit_index], func=lambda x: kitti_gt(x))
         else:
-            gt_train = dls.process_img(self.train_set["gt_bev"][0:], func=lambda x: kitti_gt(x))
-            gt_valid = dls.process_img(self.valid_set["gt_bev"][0:], func=lambda x: kitti_gt(x))
-            gt_test = dls.process_img(self.test_set["gt_bev"][0:], func=lambda x: kitti_gt(x))
+            gt_train = dls.process_img(self.train_set[gt_key][0:], func=lambda x: kitti_gt(x))
+            gt_valid = dls.process_img(self.valid_set[gt_key][0:], func=lambda x: kitti_gt(x))
+            gt_test = dls.process_img(self.test_set[gt_key][0:], func=lambda x: kitti_gt(x))
 
         return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(gt_test)
 

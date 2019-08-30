@@ -55,13 +55,14 @@ def get_dataset(path, is_training=True, view='bev'):
         cat_um = (0, 95, 95)
         cat_umm = (95, 191, 96)
         cat_uu = (191, 289, 98)
-        dataset = {'imgs':[],'calib':[],'gt':[],'gt_bev':[],'lodnn_gt':[], 'pc':[]}
+        dataset = {'imgs':[],'calib':[],'gt':[],'gt_bev':[], 'gt_front':[], 'lodnn_gt':[], 'pc':[]}
         
         img_path = '/dataset/KITTI/dataset/data_road/training/image_2/*.png'
         gt_path = '/dataset/KITTI/dataset/data_road/training/gt_image_2/*.png'
         calib_path = '/dataset/KITTI/dataset/data_road/training/calib/*.txt'
         pc_path = '/dataset/KITTI/dataset/data_road_velodyne/training/velodyne/*.bin'
         bev_gt_path = '/dataset/KITTI/dataset/data_road/training/gt_bev/*.png'
+        front_gt_path = '/dataset/KITTI/dataset/data_road/training/gt_front/*.png'
         lodnn_path = '/dataset/LoDNN/dataset/gt/*_gt.png'
         
         img_paths = sorted(glob(path + img_path))      
@@ -87,6 +88,7 @@ def get_dataset(path, is_training=True, view='bev'):
                 _dataset['calib'].append(path + calib_path.replace('*', sample_name))
                 _dataset['gt'].append(path + gt_path.replace('*', sample_name.replace("_", "_road_")))
                 _dataset['gt_bev'].append(path + bev_gt_path.replace('*', sample_name.replace("_", "_road_")))
+                _dataset['gt_front'].append(path + front_gt_path.replace('*', sample_name.replace("_", "_road_")))
                 _dataset['lodnn_gt'].append(path + lodnn_path.replace('*', sample_name))
                 _dataset['pc'].append(path + pc_path.replace('*', sample_name))
         
@@ -102,7 +104,7 @@ def get_dataset(path, is_training=True, view='bev'):
         img_paths = sorted(glob(path + img_path))
         calib_paths = sorted(glob(path + calib_path))
         pc_paths = sorted(glob(path + pc_path))
-        return {'imgs':img_paths,'calib':calib_paths,'gt':[],'gt_bev':[],'lodnn_gt':[], 'pc':pc_paths}
+        return {'imgs':img_paths,'calib':calib_paths,'gt':[],'gt_bev':[],'gt_front':[],'lodnn_gt':[], 'pc':pc_paths}
 
 def load_bin_file(bin_path, n_cols=4):
     '''
@@ -179,4 +181,3 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
         Optionally specify the data type of the output
     """
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
-

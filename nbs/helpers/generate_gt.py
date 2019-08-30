@@ -1,9 +1,48 @@
 import os
 import numpy as np
-from .calibration import Calibration
+from PIL import Image
+from .calibration import Calibration, get_lidar_in_image_fov
 from .data_loaders import load_bin_file, get_image, get_dataset
-from .calibration import get_lidar_in_image_fov
+from skimage.morphology import closing, square
 
+
+def retrieve_layers(points):
+    '''
+    Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
+    And each layer is stocked in a clockwise (or anticlockwise) fashion.
+    '''
+    x = points[:, 0]
+    y = points[:, 1]
+
+    # compute the theta angles
+    thetas = np.arctan2(y, x)
+    idx = np.ones(len(thetas))
+
+    idx_pos = idx.copy()
+    idx_pos[thetas < 0] = 0
+
+    # since each layer is stocked in a clockwise fashion each time we do a 2*pi angle we can change layer
+    # so we identify each time we do a round
+    changes = np.arange(len(thetas) - 1)[np.ediff1d(idx_pos) == 1]
+    changes += 1  # we add one for indexes reason
+
+    # Stocking intervals. Each element of intervals contains min index and max index of points in the same layer
+    intervals = []
+    for i in range(len(changes)):
+        if i == 0:
+            intervals.append([0, changes[i]])
+        else:
+            intervals.append([changes[i - 1], changes[i]])
+
+    intervals.append([changes[-1], len(thetas)])
+
+    # for each element in interval we assign a label that identifies the layer
+    layers = np.zeros(len(thetas), dtype=np.uint8)
+
+    for n, el in enumerate(intervals):
+        layers[el[0]:el[1]] = n
+
+    return layers
 
 def project_points_on_camera_img(points, img, calib):
     """
@@ -134,6 +173,57 @@ def generate_point_cloud_gt(points, gt_img, calib):
     return np.c_[points, labels]
 
 
+def project_gt_to_front(points, label_idx = -1):
+    """
+    Function that project gt to front (i.e. spherical) view image
+
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud containing labels to project
+    label_idx: int
+        index of the columns relative to labels in the points table array
+
+    Returns
+    -------
+    gt_img: ndarray
+        ground truth spherical image
+    """
+
+
+    # todo: parametrize the following variables
+    img_height = 64
+    res_planar = 300
+    img_width = np.ceil(np.pi * res_planar).astype(int)
+    # initialize gt_img
+    gt_img = np.zeros((img_height, img_width, 3), dtype=np.uint8)
+    gt_img[:,:,0] = 255
+    # get points coordinates
+    x = points[:, 0]
+    y = points[:, 1]
+    labels = points[:, label_idx]
+    # compute planar angles
+    planar_angles = np.arctan2(-y, x) + np.pi / 2
+
+    # get pixel coordinates for each point in the cloud
+    i = retrieve_layers(points)
+    j = np.floor( planar_angles * res_planar).astype(int)
+
+    idx = np.logical_and((planar_angles >= 0), (planar_angles < np.pi))
+
+    for n in range(len(points)):
+        if idx[n]:
+            gt_img[i[n], j[n], 2] = 255 * labels[n].astype(np.uint8)
+
+    cl_gt_img_2 = closing(gt_img[:,:,2], square(3))
+    cl_gt_img = gt_img.copy()
+    cl_gt_img[:,:,2] = cl_gt_img_2
+
+    gt_img = Image.fromarray(cl_gt_img.astype(np.uint8))
+
+    return gt_img
+
+
 def generate_gt(path):
     """
     Function that loops over all the database and add gt to point clouds
@@ -153,8 +243,12 @@ def generate_gt(path):
 
     pc_file = train_set['pc'][0]
     pc_file_split = pc_file.split('/')
+    gt_file = train_set['gt_bev'][0]
+    gt_file_split = gt_file.split('/')
     pc_new_dir = '/'.join(pc_file_split[:-1]).replace('/velodyne', '/gt_velodyne')
+    gt_front_new_dir = '/'.join(gt_file_split[:-1]).replace('bev', 'front')
     os.makedirs(pc_new_dir, exist_ok=True)
+    os.makedirs(gt_front_new_dir, exist_ok=True)
 
     print(pc_new_dir)
 
@@ -171,7 +265,8 @@ def generate_gt(path):
         filename = pc_path.split('/')[-1]
         print(os.path.join(pc_new_dir, filename))
         points.astype(np.float32).tofile(os.path.join(pc_new_dir, filename))
-
+        gt_front_img = project_gt_to_front(points, label_idx=-1)
+        gt_front_img.save(os.path.join(gt_front_new_dir, gt_bev_path.split('/')[-1]))
 
 if __name__ == "__main__":
     PATH = '../../'
