@@ -121,13 +121,16 @@ def get_image(path, is_color=True, rgb=False):
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 @memory.cache
-def process_list(pc_list, func):
+def process_list(pc_list, func, **kwargs):
     '''
     Process point cloud from KITTI dataset using given function
     '''
     nCPU = mp.cpu_count()
     print('nCPUs = ' + repr(nCPU))
     pool = mp.Pool(processes=nCPU)
+    from functools import partial
+    if len(kwargs):
+        func = partial(func, **kwargs)
     result = pool.map(func, [pc for pc in pc_list]) 
     pool.close()
     return result
