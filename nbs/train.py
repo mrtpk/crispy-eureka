@@ -18,9 +18,8 @@ from keras_custom_loss import jaccard2_loss
 import keras_contrib
 from helpers.sgdr import SGDRScheduler
 from helpers.lr_finder import LRFinder, get_lr_for_model
-from helpers.generate_pc_gt import generate_gt
 
-def test_all(model_name):
+def test_all(model_name, view):
     """ 
     Test simple features, geomtric features with and without subsampling at 16, 32, 64 if possible
     """
@@ -38,12 +37,15 @@ def test_all(model_name):
                                                           add_geometrical_features=add_geometrical_features,
                                                           subsample_flag =subsample_flag,
                                                           compute_HOG = compute_HOG,
+                                                          view=view,
                                                           test_name = test_name[key])
     return all_results
 
-def get_KPC_setup(model_name, add_geometrical_features = True,
-                 subsample_flag = True,
-                 compute_HOG = False):
+def get_KPC_setup(model_name,
+                  add_geometrical_features = True,
+                  subsample_flag = True,
+                  compute_HOG = False,
+                  view='bev'):
     PATH = '../' # path of the repo.
     _NAME = 'experiment0' # name of experiment
     # It is better to create a folder with runid in the experiment folder
@@ -59,7 +61,8 @@ def get_KPC_setup(model_name, add_geometrical_features = True,
     KPC = utils.KittiPointCloudClass(dataset_path=PATH, 
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
-                                     compute_HOG=compute_HOG)
+                                     compute_HOG=compute_HOG,
+                                     view=view)
     # number of channels in the images
     n_channels = 6
     if add_geometrical_features:
@@ -72,12 +75,15 @@ def get_KPC_setup(model_name, add_geometrical_features = True,
 def test_road_segmentation(model_name,
                            add_geometrical_features = True,
                            subsample_flag = True,
-                           compute_HOG = False, 
+                           compute_HOG = False,
+                           view='bev',
                            test_name='Test_'):
 
-    _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name, add_geometrical_features = add_geometrical_features,
-                                                             subsample_flag = subsample_flag,
-                                                             compute_HOG = compute_HOG)
+    _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name,
+                                                                    add_geometrical_features = add_geometrical_features,
+                                                                    subsample_flag = subsample_flag,
+                                                                    view=view,
+                                                                    compute_HOG = compute_HOG,)
 
     #limit_index = -1 for all dataset while i > 0 for smaller #samples
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
@@ -199,15 +205,16 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
-def write_front_view_GT():
-    root_path = '../'
-    if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-        print('Writing ground truth for front view')
-        generate_gt(os.path.abspath())
-    return
+# def write_front_view_GT():
+#     root_path = '../'
+#     if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+#         print('Writing ground truth for front view')
+#         generate_gt(os.path.abspath())
+#     return
+
 if __name__ == "__main__":
     #ensure the front view ground truth exists
-    write_front_view_GT()
+    # write_front_view_GT()
     
 #    test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
@@ -230,4 +237,4 @@ if __name__ == "__main__":
     k.tensorflow_backend.set_session(tf.Session(config=config))
     run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
-    test_all(args.model)
+    test_all(args.model, args.view)

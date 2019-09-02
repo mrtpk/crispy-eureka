@@ -17,10 +17,10 @@ from keras.optimizers import *
 from keras_custom_loss import jaccard2_loss
 
 
-
 def load_dataset(add_geometrical_features=True,
-                  subsample_flag=True,
-                  compute_HOG=False):
+                 subsample_flag=True,
+                 compute_HOG=False,
+                 view='bev'):
 
     PATH = '../'  # path of the repo.
     _NAME = 'experiment0'  # name of experiment
@@ -29,7 +29,8 @@ def load_dataset(add_geometrical_features=True,
     KPC = utils.KittiPointCloudClass(dataset_path=PATH,
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
-                                     compute_HOG=compute_HOG)
+                                     compute_HOG=compute_HOG,
+                                     view=view)
 
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index=-1)
 
@@ -143,7 +144,7 @@ def compute_scores(pred, gt):
     return scores
 
 
-def evaluate_model(model_name, weights, plot_result_flag):
+def evaluate_model(model_name, weights, view, plot_result_flag):
     # getting dir
     weights_dir = os.path.abspath(os.path.dirname(weights))
 
@@ -156,12 +157,14 @@ def evaluate_model(model_name, weights, plot_result_flag):
 
     f_test, gt_test = load_dataset(add_geometrical_features=geometric,
                                    subsample_flag=sampled,
-                                   compute_HOG=hog)
+                                   compute_HOG=hog,
+                                   view=view)
 
     print("Test set shape {}".format(f_test.shape))
     print("GT set shape {}".format(gt_test.shape))
 
     # image shape
+    print(f_test.shape)
     n_row, n_col, n_channels = f_test.shape[1:]
 
     if 'unet' in model_name:
@@ -172,7 +175,7 @@ def evaluate_model(model_name, weights, plot_result_flag):
         f_test = np.pad(f_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
 
     # initializing model
-    model = initialize_model(model_name, weights, training_config, (n_row, n_col, n_channels))
+    model = initialize_model(model_name, weights, training_config, f_test.shape[1:])
 
     pred, times = predict_test_set(model, f_test)
 
@@ -214,6 +217,7 @@ if __name__ == "__main__":
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
     parser.add_argument('--plot_result_flag', default=False, help='flag to show images of road segmentation')
+    parser.add_argument('--view', type=str, default='bev', help='projection to use')
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
@@ -230,4 +234,4 @@ if __name__ == "__main__":
     k.tensorflow_backend.set_session(tf.Session(config=config))
     run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
-    evaluate_model(args.model, args.model_weights, args.plot_result_flag)
+    evaluate_model(args.model, args.model_weights, args.view, args.plot_result_flag)
