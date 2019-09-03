@@ -1,9 +1,11 @@
 import os
+import argparse
 import numpy as np
+from glob import glob
 from PIL import Image
 from .calibration import Calibration, get_lidar_in_image_fov
 from .data_loaders import load_bin_file, get_image, get_dataset
-from skimage.morphology import closing, square
+from skimage.morphology import closing, opening, rectangle, square
 
 
 def retrieve_layers(points):
@@ -16,6 +18,8 @@ def retrieve_layers(points):
 
     # compute the theta angles
     thetas = np.arctan2(y, x)
+    op_thetas = opening(thetas.reshape(-1, 1), rectangle(20, 1))
+    thetas = op_thetas.flatten()
     idx = np.ones(len(thetas))
 
     idx_pos = idx.copy()
@@ -172,6 +176,36 @@ def generate_point_cloud_gt(points, gt_img, calib):
 
     return np.c_[points, labels]
 
+def project_gt_bev(points, label_idx=-1):
+    """
+    This projection does not gives us the same results as the one in LoDNN
+
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud
+
+    label_idx: int
+        index of the labels
+
+    Returns
+    -------
+    gt_img: Image
+        ground truth image
+    """
+    points_to_bev_pxls = project_on_bev_img(points[:,:3])
+    gt_img = np.zeros((400, 200, 3), dtype=np.uint8)
+    gt_img[:,:,0] = 255
+    print(points_to_bev_pxls.max(0), points_to_bev_pxls.min(0))
+    label = points[:,label_idx]
+    for n in range(len(points)):
+        if in_img_frame(points_to_bev_pxls[n], (400, 200)):
+            gt_img[points_to_bev_pxls[n, 0], points_to_bev_pxls[n, 1], 2] = 255 * label[n]
+
+    gt_img = Image.fromarray(gt_img.astype(np.uint8))
+
+    return gt_img
+
 
 def project_gt_to_front(points, label_idx = -1):
     """
@@ -207,6 +241,7 @@ def project_gt_to_front(points, label_idx = -1):
 
     # get pixel coordinates for each point in the cloud
     i = retrieve_layers(points)
+    assert i.max() == 63
     j = np.floor( planar_angles * res_planar).astype(int)
 
     idx = np.logical_and((planar_angles >= 0), (planar_angles < np.pi))
@@ -224,7 +259,7 @@ def project_gt_to_front(points, label_idx = -1):
     return gt_img
 
 
-def generate_gt(path):
+def generate_kitti_gt(path):
     """
     Function that loops over all the database and add gt to point clouds
 
@@ -268,6 +303,99 @@ def generate_gt(path):
         gt_front_img = project_gt_to_front(points, label_idx=-1)
         gt_front_img.save(os.path.join(gt_front_new_dir, gt_bev_path.split('/')[-1]))
 
+def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, start_idx = 0):
+    """
+    Function that generate the gt view
+
+    Parameters
+    ----------
+    path: str
+        path to semantic kitti dataset
+    sequences: list
+        list of sequences for which we generate gt images
+    view: optional {'bev', 'front'}
+        type of view we generate ground truth
+    classes: list
+        classes to project to gt image
+    start_idx: int
+        start index
+    """
+    basedir = os.path.join(path, 'sequences')
+    if sequences is None:
+        sequences = sorted(os.listdir(basedir))
+        for s in sequences:
+            if 'labels' not in os.listdir(os.path.join(basedir, s)):
+                sequences.remove(s)
+
+    # todo: extend to the multiclass case projection
+    if classes is None:
+        classes = 40  # corresponds to road
+
+    gt_dirname = 'gt_front' if view == 'front' else 'gt_bev'
+
+    for s in sequences:
+        pc_files = sorted(glob(os.path.join(basedir, s, 'velodyne') + '/*.bin'))
+        label_files = sorted(glob(os.path.join(basedir, s, 'labels') + '/*.label'))
+        # sanity check
+        assert len(pc_files) == len(label_files)
+
+        os.makedirs(os.path.join(basedir, s, gt_dirname), exist_ok=True)
+        for pcf, lf in zip(pc_files[start_idx:], label_files[start_idx:]):
+            print("Processing file: ", pcf.split('/')[-1].split('.')[0])
+            pc = np.fromfile(pcf, dtype=np.float32).reshape(-1, 4)
+            labels = np.fromfile(lf, dtype=np.uint32).reshape((-1))
+            labels = labels & 0xFFFF
+            labels_to_proj = (labels == classes)
+
+            if view == 'front':
+                gt_img = project_gt_to_front(np.c_[pc, labels_to_proj])
+                gt_img.save(os.path.join(basedir, s, gt_dirname, pcf.split('/')[-1].split('.')[0] + '.png'))
+
+            elif view=='bev':
+                pass
+                # retrieve layers from point cloud
+                # gt_img = project_gt_bev(np.c_[pc, labels_to_proj])
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser("./generate_gt.py")
+    parser.add_argument('--dataset', '-d',
+                        default='kitti',
+                        type=str,
+                        required=True,
+                        help='For which dataset do you need to generate ground truth?')
+    parser.add_argument(
+        '--sequence', '-s',
+        type=str,
+        default="00",
+        required=False,
+        help='Sequence to treat. Defaults to %(default)s',
+    )
+    parser.add_argument(
+        '--view', '-v',
+        type=str,
+        default='front',
+        required=False,
+        help='View to use for projection. Default "front"'
+    )
+
+    parser.add_argument(
+        '--start',
+        type=int,
+        default=0,
+        required=False,
+        help='Start index of the sequence. Default 0'
+    )
+
+    args = parser.parse_args()
+
     PATH = '../../'
-    generate_gt(os.path.abspath(PATH))
+
+    if args.dataset.lower() == 'kitti':
+        generate_kitti_gt(os.path.abspath(PATH))
+
+    elif args.dataset.lower() == 'semantickitti':
+        generate_semantic_kitti_gt(os.path.join(os.path.abspath(PATH), 'dataset', 'SemanticKITTI', 'dataset'),
+                                   sequences=['05','08'],
+                                   view=args.view,
+                                   start_idx=int(args.start)
+                                   )
