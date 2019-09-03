@@ -84,8 +84,5 @@ def filter_points(points, side_range=None, fwd_range=None, \
         mask = np.logical_and(mask, vertical_fov_mask)
 
     indices = np.argwhere(mask).flatten()
-    x_filtered = x[indices]
-    y_filtered = y[indices]
-    z_filtered = z[indices]
-    i_filtered = i[indices]
-    return np.vstack([x_filtered, y_filtered, z_filtered, i_filtered]).T
+
+    return points[indices]
