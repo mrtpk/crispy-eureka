@@ -106,7 +106,7 @@ class KittiPointCloudClass:
     """
     def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG, view, subsample_ratio=1):
         # get dataset
-        self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True, view='bev')
+        self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
         self.add_geometrical_features = add_geometrical_features  # Flag
         self.subsample = subsample  # Flag
         self.compute_HOG = compute_HOG  # Flag

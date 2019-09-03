@@ -39,7 +39,7 @@ def remove_last_n(lst, n):
     '''
     return lst[:-n or None], lst[-n:]
 
-def get_dataset(path, is_training=True, view='bev'):
+def get_dataset(path, is_training=True):
     '''
     Returns training, test, and validation sets from KITTI training set
     if @param is_training is True. If false returns testing set of KITTI.
