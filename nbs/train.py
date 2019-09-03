@@ -205,16 +205,16 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
-# def write_front_view_GT():
-#     root_path = '../'
-#     if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-#         print('Writing ground truth for front view')
-#         generate_gt(os.path.abspath())
-#     return
+def write_front_view_GT():
+    root_path = '../'
+    if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+        print('Writing ground truth for front view')
+        generate_gt(os.path.abspath())
+    return
 
 if __name__ == "__main__":
     #ensure the front view ground truth exists
-    # write_front_view_GT()
+    write_front_view_GT()
     
 #    test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
