@@ -228,12 +228,18 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
+# def write_front_view_GT():
+#     root_path = '../'
+#     if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+#         print('Writing ground truth for front view')
+#         generate_gt(os.path.abspath())
+#     return
 
 if __name__ == "__main__":
     #ensure the front view ground truth exists
     # write_front_view_GT()
-    
-#    test_road_segmentation()
+
+    #test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
