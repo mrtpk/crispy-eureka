@@ -10,6 +10,7 @@ from helpers.calibration import get_lidar_in_image_fov
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import average_precision_score
 from sklearn.decomposition import PCA
+from skimage.morphology import opening, rectangle
 import keras
 from keras.callbacks import TensorBoard, EarlyStopping
 
@@ -104,9 +105,22 @@ class KittiPointCloudClass:
     """ 
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
-    def __init__(self, dataset_path, add_geometrical_features, subsample, compute_HOG, view, subsample_ratio=1):
+    def __init__(self, dataset_path,
+                 add_geometrical_features,
+                 subsample,
+                 compute_HOG,
+                 view,
+                 subsample_ratio=1,
+                 dataset='kitti',
+                 sequences=None):
         # get dataset
-        self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
+        if dataset == 'kitti':
+            self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
+        else:
+            self.train_set, self.valid_set, self.test_set = dls.get_semantic_kitti_dataset(dataset_path,
+                                                                                           is_training=True,
+                                                                                           sequences=sequences)
+
         self.add_geometrical_features = add_geometrical_features  # Flag
         self.subsample = subsample  # Flag
         self.compute_HOG = compute_HOG  # Flag
@@ -141,32 +155,31 @@ class KittiPointCloudClass:
             f_train = dls.load_pc(self.train_set["pc"][0:limit_index])
             f_valid = dls.load_pc(self.valid_set["pc"][0:limit_index])
             f_test = dls.load_pc(self.test_set["pc"][0:limit_index])
+            if self.compute_HOG:
+                print('Reading calibration files')
+                cal_train = dls.process_calib(self.train_set["calib"][0:limit_index])
+                cal_valid = dls.process_calib(self.valid_set["calib"][0:limit_index])
+                cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
 
-            print('Reading calibration files')
-            cal_train = dls.process_calib(self.train_set["calib"][0:limit_index])
-            cal_valid = dls.process_calib(self.valid_set["calib"][0:limit_index])
-            cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
-
-
-            print('Reading camera images')
-            cam_img_train = dls.load_img(self.train_set["imgs"][0:limit_index])
-            cam_img_valid = dls.load_img(self.valid_set["imgs"][0:limit_index])
-            cam_img_test = dls.load_img(self.test_set["imgs"][0:limit_index])
+                print('Reading camera images')
+                cam_img_train = dls.load_img(self.train_set["imgs"][0:limit_index])
+                cam_img_valid = dls.load_img(self.valid_set["imgs"][0:limit_index])
+                cam_img_test = dls.load_img(self.test_set["imgs"][0:limit_index])
 
         else:
             f_train = dls.load_pc(self.train_set["pc"][0:])
             f_valid = dls.load_pc(self.valid_set["pc"][0:])
             f_test = dls.load_pc(self.test_set["pc"][0:])
+            if self.compute_HOG:
+                print('Reading calibration files')
+                cal_train = dls.process_calib(self.train_set["calib"][0:])
+                cal_valid = dls.process_calib(self.valid_set["calib"][0:])
+                cal_test = dls.process_calib(self.test_set["calib"][0:])
 
-            print('Reading calibration files')
-            cal_train = dls.process_calib(self.train_set["calib"][0:])
-            cal_valid = dls.process_calib(self.valid_set["calib"][0:])
-            cal_test = dls.process_calib(self.test_set["calib"][0:])
-
-            print('Reading camera images')
-            cam_img_train = dls.load_img(self.train_set["imgs"][0:])
-            cam_img_valid = dls.load_img(self.valid_set["imgs"][0:])
-            cam_img_test = dls.load_img(self.test_set["imgs"][0:])
+                print('Reading camera images')
+                cam_img_train = dls.load_img(self.train_set["imgs"][0:])
+                cam_img_valid = dls.load_img(self.valid_set["imgs"][0:])
+                cam_img_test = dls.load_img(self.test_set["imgs"][0:])
 
 
         #Update min max z
@@ -198,10 +211,14 @@ class KittiPointCloudClass:
             
         print('Extracting features')
         t = time()
-
-        f_cam_calib_train = [(f_t, img, calib) for f_t, img, calib in zip(f_train, cam_img_train, cal_train)]
-        f_cam_calib_valid = [(f_t, img, calib) for f_t, img, calib in zip(f_valid, cam_img_valid, cal_valid)]
-        f_cam_calib_test = [(f_t, img, calib) for f_t, img, calib in zip(f_test, cam_img_test, cal_test)]
+        if self.compute_HOG:
+            f_cam_calib_train = [(f_t, img, calib) for f_t, img, calib in zip(f_train, cam_img_train, cal_train)]
+            f_cam_calib_valid = [(f_t, img, calib) for f_t, img, calib in zip(f_valid, cam_img_valid, cal_valid)]
+            f_cam_calib_test = [(f_t, img, calib) for f_t, img, calib in zip(f_test, cam_img_test, cal_test)]
+        else:
+            f_cam_calib_train = zip(f_train, len(f_train) * [None], len(f_train) * [None])
+            f_cam_calib_valid = zip(f_valid, len(f_valid) * [None], len(f_valid) * [None])
+            f_cam_calib_test = zip(f_test, len(f_test) * [None], len(f_test) * [None])
 
         f_train = dls.process_list(f_cam_calib_train, self.get_features)
         f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
@@ -232,7 +249,11 @@ class KittiPointCloudClass:
         img = raw_info[1]
         calib = raw_info[2]
         # vector containing for each point the id of the layer that captured the point
-        layers = retrieve_layers(points[:,:3])
+        if self.subsample:
+            layers= points[:, 4].astype(int) // self.subsample_ratio
+        else:
+            layers = retrieve_layers(points[:,:3])
+
         unique = np.unique(layers)
 
         # coordiantes of the points
@@ -376,7 +397,11 @@ class KittiPointCloudClass:
         if self.view == 'bev':
             lidx, _, _ = _get_lidx(points, self.side_range, self.fwd_range, self.res)
         else:
-            lidx, _, _ = _get_spherical_lidx(points, self.res_planar)
+            if self.subsample:
+                l = points[:,4].astype(int) // self.subsample_ratio
+                lidx, _, _ = _get_spherical_lidx(points, self.res_planar, layers=l)
+            else:
+                lidx, _, _ = _get_spherical_lidx(points, self.res_planar)
         # Feature extraction
         # count of points per grid
         count_input = np.ones_like(norm_z_lidar)
@@ -676,6 +701,8 @@ def retrieve_layers(points):
 
     # compute the theta angles
     thetas = np.arctan2(y, x)
+    op_thetas = opening(thetas.reshape(-1, 1), rectangle(20, 1))
+    thetas = op_thetas.flatten()
     idx = np.ones(len(thetas))
 
     idx_pos = idx.copy()
@@ -723,10 +750,9 @@ Return sub sampled point cloud
         subsampled pointcloud
     '''
     layers = retrieve_layers(points)
-
+    new_points = np.c_[points, layers]
     # sampling only points with even id
-    return points[layers % sub_ratio == 0]
-
+    return new_points[layers % sub_ratio == 0]
 
 def get_rgb(points, img, calib):
     '''
