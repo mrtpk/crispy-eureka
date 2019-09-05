@@ -30,21 +30,24 @@ def test_all(model_name, view):
     for add_geometrical_features, g in zip([True, False], ['Geometric_', '']):
         for subsample_flag, s in zip([True, False], ['Subsampled_','']):
             for compute_HOG, h in zip([True, False], ['HOG_','']): #change one of them to true when testing all
-                key = (add_geometrical_features, subsample_flag, compute_HOG)
-                test_name[key] = prefix+g+s+h
-                print(test_name[key])
-                all_results[key] = test_road_segmentation(model_name,
-                                                          add_geometrical_features=add_geometrical_features,
-                                                          subsample_flag =subsample_flag,
-                                                          compute_HOG = compute_HOG,
-                                                          view=view,
-                                                          test_name = test_name[key])
+                for compute_eigen, e in zip([100, 0], ['Eigen_', '']): #training for 100 kneighbors
+                    key = (add_geometrical_features, subsample_flag, compute_HOG, compute_eigen)
+                    test_name[key] = prefix+g+s+h+e
+                    print(test_name[key])
+                    all_results[key] = test_road_segmentation(model_name,
+                                                            add_geometrical_features=add_geometrical_features,
+                                                            subsample_flag =subsample_flag,
+                                                            compute_HOG = compute_HOG,
+                                                            compute_eigen = compute_eigen,
+                                                            view=view,
+                                                            test_name = test_name[key])
     return all_results
 
 def get_KPC_setup(model_name,
                   add_geometrical_features = True,
                   subsample_flag = True,
                   compute_HOG = False,
+                  compute_eigen = 0,
                   view='bev'):
     PATH = '../' # path of the repo.
     _NAME = 'experiment0' # name of experiment
@@ -62,12 +65,15 @@ def get_KPC_setup(model_name,
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG,
+                                     eigen_neighbors=compute_eigen,
                                      view=view)
     # number of channels in the images
     n_channels = 6
     if add_geometrical_features:
         n_channels += 3
     if compute_HOG:
+        n_channels += 6
+    if compute_eigen > 0:
         n_channels += 6
 
     return _NAME, run_id, path, callbacks, KPC, n_channels
@@ -76,12 +82,14 @@ def test_road_segmentation(model_name,
                            add_geometrical_features = True,
                            subsample_flag = True,
                            compute_HOG = False,
+                           compute_eigen = 0,
                            view='bev',
                            test_name='Test_'):
 
     _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name,
                                                                     add_geometrical_features = add_geometrical_features,
                                                                     subsample_flag = subsample_flag,
+                                                                    compute_eigen = compute_eigen,
                                                                     view=view,
                                                                     compute_HOG = compute_HOG,)
 
