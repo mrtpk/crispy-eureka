@@ -20,6 +20,7 @@ from keras_custom_loss import jaccard2_loss
 def load_dataset(add_geometrical_features=True,
                  subsample_flag=True,
                  compute_HOG=False,
+                 compute_eigen=0,
                  view='bev'):
 
     PATH = '../'  # path of the repo.
@@ -30,6 +31,7 @@ def load_dataset(add_geometrical_features=True,
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG,
+                                     eigen_neighbors=compute_eigen,
                                      view=view)
 
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index=-1)
@@ -58,9 +60,13 @@ def get_info_from_test_name(filename):
     sampled = False
     if 'sampled' in test_name:
         sampled = True
+    
+    if 'eigen' in test_name:
+        eigen = 100 # TODO: take it from config file
+
     print(d)
 
-    return geometric, hog, sampled, d['training_config']
+    return geometric, hog, eigen, sampled, d['training_config']
 
 
 def initialize_model(model_name, weights, training_config, shape):
@@ -152,12 +158,13 @@ def evaluate_model(model_name, weights, view, plot_result_flag):
     weights_par_dir = os.path.abspath(os.path.join(weights_dir, os.pardir))
 
     # retrieve basic info on trained model
-    geometric, hog, sampled, training_config = get_info_from_test_name(os.path.join(weights_par_dir, 'details.json'))
+    geometric, hog, eigen, sampled, training_config = get_info_from_test_name(os.path.join(weights_par_dir, 'details.json'))
     print(training_config)
 
     f_test, gt_test = load_dataset(add_geometrical_features=geometric,
                                    subsample_flag=sampled,
                                    compute_HOG=hog,
+                                   compute_eigen=eigen,
                                    view=view)
 
     print("Test set shape {}".format(f_test.shape))
