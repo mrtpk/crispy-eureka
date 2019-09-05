@@ -1,9 +1,8 @@
 # crispy-eureka
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
 * ~~Currently submitted to [CVRSUAD ICCVW 2019](https://sites.google.com/view/cvrsuad/), decision : Refused~~
-* New Deadline : [ICCRA'20](https://www.ieee-ras.org/component/rseventspro/event/1145-icra-2020-call-for-papers-deadline),  Sep. 10, 2019
+* New Deadline : [ICCRA'20](https://www.ieee-ras.org/component/rseventspro/event/1145-icra-2020-call-for-papers-deadline), ** Sep. 15, 2019**
 * New Deadline : [ML4AD - NeurIPS](https://ml4ad.github.io/), Sep. 17 2019, decision: Notification of acceptance Oct. 1, 
-
 
 # New Goals for Sep 10: 
 - Evaluate accuracy w & w/o subsampling in front view with SqueezeNet, Unet, and ChipNet
@@ -14,15 +13,28 @@
 
 
 # Article corrections
-- Better explain the motivation and the contribution
-- Better explain and show the advantages in using geometrical features
-- Move to front view representation and show how subsampling could benefit computationally the prediction.
-- Add a discussion of the results obtained
-- [optional] Compare results obtained with bev-view and front-view
+- Better explain the motivation and the contribution : Feature extraction to learn robust representations for sparse pointclouds to perform road segmentation
+- Better explain and show the advantages in using geometrical features : How does normal estimation help in localizing the road (Curbs, edges of the road)
+- Move to front view representation and show how subsampling could benefit computationally the prediction. (Front view ground truth should be measured in the highest resolution possible)
+- Compare results obtained with bev-view and front-view
 
+# Contributions : 
+- Geometrical features improve and dont degrage performance for road seg with subsampling
+- Spectral features dont degrade performance for road seg with subsampling
+- Evaluating the effect of density variation in classification of road segmentation
+- First benchmark on Semantic KITTI for road segmentation
 
-# Future goals
-- Create an annotated dataset using the method from Kitti-Road segmentation to generate datasets on NuSceneces and possibly other datasets(Waymo) : Create a RoadNet dataset ? This could be a CVPR submission if we work hard :)
+# Future goals (ICRA Deadline)
+- Evaluate geometrical features (normal) performance (Leo)
+- Move to Semantic KITTI and evaluate performance on the road class (Leo/Ravi)
+- Work on Front view and evaluate performance with subsampling, models : u-net, squeezenet, lodnn (Leo/Ravi)
+- Evaluate the performance of spectral features from Pyntcloud w and w/o subsampling (Thomas)
+- Correct/Fix the HOG computation (Ravi)
+- Handle Class imbalance (very few points corresponding to road)
 
-# Conference deadlines
-- ICRA 2020 Paris [link](https://www.icra2020.org/) Deadline : Call for Papers Opening SEPTEMBER 2019
+# Secondary goals if we have time
+- Improve 2d-grid feature extraction in BEV using kernel density estimate
+	- Kernel Density Filtering for Noisy Point Clouds in One Step [pdf](http://www.csd.uwo.ca/faculty/beau/PAPERS/imvip-15.pdf)
+- Autoencoders to perform feature selection [Concrete Autoencoders](https://github.com/mfbalin/Concrete-Autoencoders)
+- Better Dataaugmentation to handle the density variation and shadows
+
