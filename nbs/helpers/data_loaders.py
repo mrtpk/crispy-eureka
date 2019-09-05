@@ -39,6 +39,74 @@ def remove_last_n(lst, n):
     '''
     return lst[:-n or None], lst[-n:]
 
+def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
+
+    # semantic Kitti basedir. TODO: decide if add this to parameters of the function
+
+    sem_kitti_basedir = 'dataset/SemanticKITTI/dataset/sequences'
+    # train_sequences = ["{:02}".format(i) for i in range(11)]  ## according to semantic-kitti.yaml
+    # train_sequences.remove('08')
+
+    train_sequences = ["05"]
+    valid_sequences = ["04"]
+    # test_sequences = ["{:02}".format(i) for i in range(11, 22, 1)]
+    test_sequences = ["03"]
+
+    # initialize dataset
+    dataset = {'imgs': [], 'calib': [], 'gt': [], 'gt_bev': [], 'gt_front': [], 'lodnn_gt': [], 'pc': []}
+
+    imgs_dir = 'image_2'
+    pc_dir = 'velodyne'
+    gt_front_dir = 'gt_front'
+    gt_bev_dir = 'gt_bev'
+
+    if sequences is None:
+        # if sequence is none we take all the sequences
+        sequences = ["{:02}".format(i) for i in range(22)]
+
+    if is_training is True:
+        testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
+
+        for s in sequences:
+            if s in train_sequences:
+                trainset['imgs'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+                trainset['pc'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+                trainset['gt_bev'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+                trainset['gt_front'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
+                trainset['calib'] += len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
+                                     [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+
+            elif s in valid_sequences:
+                 validset['imgs'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+                 validset['pc'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+                 validset['gt_bev'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+                 validset['gt_front'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
+                 validset['calib'] += len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
+                                      [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+
+            elif s in test_sequences:
+                testset['imgs'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+                testset['pc'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+                testset['gt_bev'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+                testset['gt_front'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
+                testset['calib'] += len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
+                                     [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+            # else:
+            #     raise ValueError("Sequence {} not in the dataset".format(s))
+
+        return  trainset, validset, testset
+    else:
+        for s in sequences:
+            dataset['imgs'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+            dataset['pc'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+            dataset['gt_bev'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+            dataset['gt_front'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
+            dataset['calib'] += len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
+                                [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+
+        return dataset
+
+
 def get_dataset(path, is_training=True):
     '''
     Returns training, test, and validation sets from KITTI training set
@@ -120,7 +188,6 @@ def get_image(path, is_color=True, rgb=False):
         return img
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-@memory.cache
 def process_list(pc_list, func, **kwargs):
     '''
     Process point cloud from KITTI dataset using given function
@@ -184,3 +251,7 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
         Optionally specify the data type of the output
     """
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
+
+if __name__ == '__main__':
+    PATH = '../../'
+    get_semantic_kitti_dataset(PATH, is_training=True, sequences=['05', '08', '21'])
