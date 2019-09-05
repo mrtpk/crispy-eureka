@@ -251,7 +251,3 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
         Optionally specify the data type of the output
     """
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
-
-if __name__ == '__main__':
-    PATH = '../../'
-    get_semantic_kitti_dataset(PATH, is_training=True, sequences=['05', '08', '21'])
