@@ -20,7 +20,8 @@ from keras_custom_loss import jaccard2_loss
 def load_dataset(add_geometrical_features=True,
                  subsample_flag=True,
                  compute_HOG=False,
-                 view='bev'):
+                 view='bev',
+                 subsample_ratio=1):
 
     PATH = '../'  # path of the repo.
     _NAME = 'experiment0'  # name of experiment
@@ -30,7 +31,8 @@ def load_dataset(add_geometrical_features=True,
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG,
-                                     view=view)
+                                     view=view,
+                                     subsample_ratio=subsample_ratio)
 
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index=-1)
 
@@ -56,19 +58,24 @@ def get_info_from_test_name(filename):
         hog = True
 
     sampled = False
+    sampled_ratio = 1
     if 'sampled' in test_name:
         sampled = True
+        if '32' in test_name:
+            sampled_ratio = 2
+        if '16' in test_name:
+            sampled_ratio = 4
     print(d)
 
-    return geometric, hog, sampled, d['training_config']
+    return geometric, hog, sampled, sampled_ratio, d['training_config']
 
 
-def initialize_model(model_name, weights, training_config, shape):
+def initialize_model(model_name, weights, training_config, shape, subsample_ratio=1):
     # initialize model
     if model_name == 'lodnn':
         model = dl_models.get_lodnn_model(shape=shape)
     elif model_name == 'unet':
-        model = dl_models.get_unet_model(input_size=shape)
+        model = dl_models.get_unet_model(input_size=shape, subsample_ratio=subsample_ratio)
     elif model_name == 'unet6':
         model = dl_models.u_net6(shape=shape,
                                  filters=512,
@@ -152,19 +159,19 @@ def evaluate_model(model_name, weights, view, plot_result_flag):
     weights_par_dir = os.path.abspath(os.path.join(weights_dir, os.pardir))
 
     # retrieve basic info on trained model
-    geometric, hog, sampled, training_config = get_info_from_test_name(os.path.join(weights_par_dir, 'details.json'))
+    geometric, hog, sampled, subsample_ratio, training_config = get_info_from_test_name(os.path.join(weights_par_dir, 'details.json'))
     print(training_config)
 
     f_test, gt_test = load_dataset(add_geometrical_features=geometric,
                                    subsample_flag=sampled,
                                    compute_HOG=hog,
-                                   view=view)
+                                   view=view,
+                                   subsample_ratio=subsample_ratio)
 
     print("Test set shape {}".format(f_test.shape))
     print("GT set shape {}".format(gt_test.shape))
 
     # image shape
-    print(f_test.shape)
     n_row, n_col, n_channels = f_test.shape[1:]
 
     if 'unet' in model_name:
@@ -175,12 +182,15 @@ def evaluate_model(model_name, weights, view, plot_result_flag):
         f_test = np.pad(f_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
 
     # initializing model
-    model = initialize_model(model_name, weights, training_config, f_test.shape[1:])
+    model = initialize_model(model_name, weights, training_config, f_test.shape[1:], subsample_ratio=subsample_ratio)
 
     pred, times = predict_test_set(model, f_test)
 
+    pred = pred[:, :(subsample_ratio*n_row), :n_col, :]  # setting same dimension as before
+
+    print(pred.shape, gt_test.shape)
     if 'unet' in model_name:
-        scores = compute_scores(pred[:, :n_row, :n_col, :], gt_test)
+        scores = compute_scores(pred[:, :(subsample_ratio*n_row), :n_col, :], gt_test)
     else:
         scores = compute_scores(pred, gt_test)
 
@@ -196,8 +206,9 @@ def evaluate_model(model_name, weights, view, plot_result_flag):
             ax[3].imshow(1 - np.argmax(pred[n, :, :, :], axis=2))
             ax[3].set_title('pred_argmax_{}'.format(n))
             plt.show()
-
+    print(gt_test.shape)
     output = np.zeros_like(gt_test[:, :, :, 0])
+    print(pred.shape)
     for i in range(pred.shape[0]):
         output[i] = 1 - np.argmax(pred[i], axis=2)
 
