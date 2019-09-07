@@ -329,9 +329,9 @@ class KittiPointCloudClass:
         Using pyntcloud library calculates various eigen properties.
         '''
         x = points[:, 0]
-        y = points[:, 0]
-        z = points[:, 0]
-        r = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+        r = points[:, 3]
 
         # convert it into Pandas df 
         pc = PyntCloud(pd.DataFrame({'x': x, 'y': y, 'z': z, 'r': r}))

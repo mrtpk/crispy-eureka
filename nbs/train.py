@@ -33,7 +33,7 @@ def test_all(model_name, view, dataset, sequences=None):
                 for compute_eigen, e in zip([100, 0], ['Eigen_', '']): #training for 100 kneighbors
                     subsample_flag = True if subsample_ratio % 2 == 0 else False
                     key = (add_geometrical_features, subsample_flag, compute_HOG)
-                    test_name[key] = prefix+g+s+h
+                    test_name[key] = prefix+g+s+h+e
                     print(test_name[key])
                     all_results[key] = test_road_segmentation(model_name,
                                                             add_geometrical_features=add_geometrical_features,
