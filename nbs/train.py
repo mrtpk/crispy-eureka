@@ -13,11 +13,16 @@ import keras #this is required
 from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from keras import backend as k
-from keras_custom_loss import weightedLoss2
+from keras_custom_loss import weightedLoss2, binary_focal_loss
 #cyclic lr
 import keras_contrib
 from helpers.sgdr import SGDRScheduler
 from helpers.lr_finder import LRFinder, get_lr_for_model
+
+def remove_bg(gt_train):
+    gt_train = gt_train[:,:,:,0]
+    gt_train = gt_train[:,:,:,np.newaxis]
+    return gt_train
 
 def test_all(model_name, view, dataset, sequences=None):
     """ 
@@ -105,7 +110,7 @@ def test_road_segmentation(model_name,
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
     
     _, n_row, n_col, _ = f_train.shape
-
+ 
     if 'unet' in model_name:
         multiple_of = 16 if model_name =='unet' else 32
         nrpad =  multiple_of - n_row % multiple_of if n_row % multiple_of != 0 else 0
@@ -121,6 +126,11 @@ def test_road_segmentation(model_name,
         gt_valid[:, n_col:, n_row:, 1] = 1  # set the new pixels to non-road
         gt_test = np.pad(gt_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
         gt_test[:, n_col:, n_row:, 1] = 1  # set the new pixels to non-road
+        
+        gt_train = remove_bg(gt_train)
+        gt_valid = remove_bg(gt_valid)
+        gt_test = remove_bg(gt_test)
+        
     print(f_test.shape, gt_test.shape)
     
     # All training params to be added here
@@ -134,8 +144,13 @@ def test_road_segmentation(model_name,
 
     #this is the augmentation configuration we will use for training
     train_datagen = ImageDataGenerator(horizontal_flip=True) 
-    train_iterator = train_datagen.flow(f_train, gt_train, 
-                    batch_size=training_config['batch_size'], shuffle=True)
+    read_all_into_memory = True
+    if read_all_into_memory:
+        train_iterator = train_datagen.flow(f_train, gt_train, 
+                        batch_size=training_config['batch_size'], shuffle=True)
+    # else: #read flow from directory
+    #     train_iterator = train_datagen.flow(f_train, gt_train, 
+    #                     batch_size=training_config['batch_size'], shuffle=True)
     # Validation
     valid_datagen = ImageDataGenerator(horizontal_flip=True) 
     valid_iterator = valid_datagen.flow(f_valid, gt_valid, 
@@ -182,7 +197,8 @@ def test_road_segmentation(model_name,
     else:
         class_weight = [4.431072018928066, 1.0]
 
-    model.compile(loss=weightedLoss2(keras.losses.binary_crossentropy, class_weight),
+    model.compile(loss=binary_focal_loss(),
+                  #loss=weightedLoss2(keras.losses.binary_crossentropy, class_weight),
                   optimizer=optimizer,
                   metrics=['accuracy'])
     
@@ -228,16 +244,16 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
-# def write_front_view_GT():
-#     root_path = '../'
-#     if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-#         print('Writing ground truth for front view')
-#         generate_gt(os.path.abspath())
-#     return
+def write_front_view_GT():
+    root_path = '../'
+    if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+        print('Writing ground truth for front view')
+        generate_gt(os.path.abspath())
+    return
 
 if __name__ == "__main__":
     #ensure the front view ground truth exists
-    # write_front_view_GT()
+    write_front_view_GT()
 
     #test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")

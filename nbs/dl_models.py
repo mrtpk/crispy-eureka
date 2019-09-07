@@ -104,7 +104,7 @@ def get_unet_model(input_size = (400,200,6), subsample_ratio=1):
 
     conv9 = keras.layers.Conv2D(2, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv8)
 
-    conv10 = keras.layers.Conv2D(2, 1, activation = 'sigmoid')(conv9)
+    conv10 = keras.layers.Conv2D(1, 1, activation = 'sigmoid')(conv9)
 
     model = keras.models.Model(input = inputs, output = conv10)
     

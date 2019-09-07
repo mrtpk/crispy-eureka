@@ -3,8 +3,8 @@ import argparse
 import numpy as np
 from glob import glob
 from PIL import Image
-from .calibration import Calibration, get_lidar_in_image_fov
-from .data_loaders import load_bin_file, get_image, get_dataset
+from calibration import Calibration, get_lidar_in_image_fov
+from data_loaders import load_bin_file, get_image, get_dataset
 from skimage.morphology import closing, opening, rectangle, square
 
 
