@@ -3,8 +3,8 @@ import argparse
 import numpy as np
 from glob import glob
 from PIL import Image
-from calibration import Calibration, get_lidar_in_image_fov
-from data_loaders import load_bin_file, get_image, get_dataset
+from .calibration import Calibration, get_lidar_in_image_fov
+from .data_loaders import load_bin_file, get_image, get_dataset
 from skimage.morphology import closing, opening, rectangle, square
 
 
@@ -321,10 +321,8 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
         start index
     """
     basedir = os.path.join(path, 'sequences')
-    
     if sequences is None:
         sequences = sorted(os.listdir(basedir))
-        print(sequences)
         for s in sequences:
             if 'labels' not in os.listdir(os.path.join(basedir, s)):
                 sequences.remove(s)
@@ -336,16 +334,14 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
     gt_dirname = 'gt_front' if view == 'front' else 'gt_bev'
 
     for s in sequences:
-        print(os.path.join(basedir, s, 'velodyne'))
         pc_files = sorted(glob(os.path.join(basedir, s, 'velodyne') + '/*.bin'))
         label_files = sorted(glob(os.path.join(basedir, s, 'labels') + '/*.label'))
         # sanity check
         assert len(pc_files) == len(label_files)
 
         os.makedirs(os.path.join(basedir, s, gt_dirname), exist_ok=True)
-        
         for pcf, lf in zip(pc_files[start_idx:], label_files[start_idx:]):
-            # print("Processing file: ", pcf.split('/')[-1].split('.')[0])
+            print("Processing file: ", pcf.split('/')[-1].split('.')[0])
             pc = np.fromfile(pcf, dtype=np.float32).reshape(-1, 4)
             labels = np.fromfile(lf, dtype=np.uint32).reshape((-1))
             labels = labels & 0xFFFF
@@ -353,7 +349,6 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
 
             if view == 'front':
                 gt_img = project_gt_to_front(np.c_[pc, labels_to_proj])
-                print(os.path.join(basedir, s, gt_dirname, pcf.split('/')[-1].split('.')[0] + '.png'))
                 gt_img.save(os.path.join(basedir, s, gt_dirname, pcf.split('/')[-1].split('.')[0] + '.png'))
 
             elif view=='bev':
@@ -364,7 +359,7 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("./generate_gt.py")
     parser.add_argument('--dataset', '-d',
-                        default='semantickitti',
+                        default='kitti',
                         type=str,
                         required=True,
                         help='For which dataset do you need to generate ground truth?')
@@ -395,13 +390,12 @@ if __name__ == "__main__":
 
     PATH = '../../'
 
-    
     if args.dataset.lower() == 'kitti':
         generate_kitti_gt(os.path.abspath(PATH))
 
     elif args.dataset.lower() == 'semantickitti':
-        generate_semantic_kitti_gt(os.path.join(os.path.abspath(PATH), 'dataset', 'SemanticKITTI', 'kitti' ,'dataset'),
-                                   sequences=['10','10'],
+        generate_semantic_kitti_gt(os.path.join(os.path.abspath(PATH), 'dataset', 'SemanticKITTI', 'dataset'),
+                                   sequences=['05','08'],
                                    view=args.view,
                                    start_idx=int(args.start)
                                    )

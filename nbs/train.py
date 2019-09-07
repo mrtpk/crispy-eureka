@@ -13,13 +13,13 @@ import keras #this is required
 from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from keras import backend as k
-from keras_custom_loss import jaccard2_loss
+from keras_custom_loss import weightedLoss2
 #cyclic lr
 import keras_contrib
 from helpers.sgdr import SGDRScheduler
 from helpers.lr_finder import LRFinder, get_lr_for_model
 
-def test_all(model_name, view):
+def test_all(model_name, view, dataset, sequences=None):
     """ 
     Test simple features, geomtric features with and without subsampling at 16, 32, 64 if possible
     """
@@ -28,11 +28,12 @@ def test_all(model_name, view):
     test_name = {}
     prefix = 'Classical_'
     for add_geometrical_features, g in zip([True, False], ['Geometric_', '']):
-        for subsample_flag, s in zip([True, False], ['Subsampled_','']):
-            for compute_HOG, h in zip([True, False], ['HOG_','']): #change one of them to true when testing all
+        for subsample_ratio, s in zip([1, 2, 4], ['', 'Subsampled_32', 'Subsampled_16']):
+            for compute_HOG, h in zip([False], ['']): #change one of them to true when testing all
                 for compute_eigen, e in zip([100, 0], ['Eigen_', '']): #training for 100 kneighbors
-                    key = (add_geometrical_features, subsample_flag, compute_HOG, compute_eigen)
-                    test_name[key] = prefix+g+s+h+e
+                    subsample_flag = True if subsample_ratio % 2 == 0 else False
+                    key = (add_geometrical_features, subsample_flag, compute_HOG)
+                    test_name[key] = prefix+g+s+h
                     print(test_name[key])
                     all_results[key] = test_road_segmentation(model_name,
                                                             add_geometrical_features=add_geometrical_features,
@@ -40,7 +41,10 @@ def test_all(model_name, view):
                                                             compute_HOG = compute_HOG,
                                                             compute_eigen = compute_eigen,
                                                             view=view,
-                                                            test_name = test_name[key])
+                                                            subsample_ratio=subsample_ratio,
+                                                            test_name = test_name[key],
+                                                            dataset=dataset,
+                                                            sequences=sequences)
     return all_results
 
 def get_KPC_setup(model_name,
@@ -48,7 +52,10 @@ def get_KPC_setup(model_name,
                   subsample_flag = True,
                   compute_HOG = False,
                   compute_eigen = 0,
-                  view='bev'):
+                  view='bev',
+                  subsample_ratio=1,
+                  dataset='kitti',
+                  sequences=None):
     PATH = '../' # path of the repo.
     _NAME = 'experiment0' # name of experiment
     # It is better to create a folder with runid in the experiment folder
@@ -66,7 +73,10 @@ def get_KPC_setup(model_name,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG,
                                      eigen_neighbors=compute_eigen,
-                                     view=view)
+                                     view=view,
+                                     subsample_ratio=subsample_ratio,
+                                     dataset=dataset,
+                                     sequences=sequences)
     # number of channels in the images
     n_channels = 6
     if add_geometrical_features:
@@ -84,14 +94,20 @@ def test_road_segmentation(model_name,
                            compute_HOG = False,
                            compute_eigen = 0,
                            view='bev',
-                           test_name='Test_'):
+                           subsample_ratio=1,
+                           test_name='Test_',
+                           dataset='kitti',
+                           sequences=None):
 
     _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name,
                                                                     add_geometrical_features = add_geometrical_features,
                                                                     subsample_flag = subsample_flag,
                                                                     compute_eigen = compute_eigen,
                                                                     view=view,
-                                                                    compute_HOG = compute_HOG,)
+                                                                    compute_HOG = compute_HOG,
+                                                                    subsample_ratio=subsample_ratio,
+                                                                    dataset=dataset,
+                                                                    sequences=sequences)
 
     #limit_index = -1 for all dataset while i > 0 for smaller #samples
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index = -1)
@@ -117,7 +133,7 @@ def test_road_segmentation(model_name,
     
     # All training params to be added here
     training_config = {
-        "loss_function" : "jaccard2_loss",
+        "loss_function" : "binary_crossentropy",
         "learning_rate" : 1e-3,
         "batch_size"    : 3,
         "epochs"        : 120,
@@ -139,7 +155,9 @@ def test_road_segmentation(model_name,
     if model_name=='lodnn':
         model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
     elif model_name=='unet':
-        model = dl_models.get_unet_model(input_size=(f_train.shape[1],f_train.shape[2], n_channels))
+        model = dl_models.get_unet_model(input_size=(f_train.shape[1],f_train.shape[2], n_channels),
+                                         subsample_ratio=subsample_ratio)
+
     elif model_name=='unet6':
         model = dl_models.u_net6(shape=(f_train.shape[1],f_train.shape[2], n_channels),
                                  filters=512,
@@ -161,26 +179,31 @@ def test_road_segmentation(model_name,
                                                   mode='triangular', gamma=0.99994, 
                                                   step_size=120000)
     # clr_triangular._reset(new_base_lr=0.003, new_max_lr=0.009)
-    #clr_custom = SGDRScheduler(min_lr=1e-3, max_lr=1e-2, steps_per_epoch=1e4, lr_decay=0.9, cycle_length=1, mult_factor=2)
+    # clr_custom = SGDRScheduler(min_lr=1e-3, max_lr=1e-2, steps_per_epoch=1e4, lr_decay=0.9, cycle_length=1, mult_factor=2)
 
     callbacks = callbacks + [clr_custom]
     optimizer = keras.optimizers.Nadam() #SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True) #eval(training_config["optimizer"])(lr=training_config["learning_rate"])
-    
-    model.compile(loss=jaccard2_loss,
+
+    # todo: move from class weight to focal loss
+    if dataset == 'kitti':
+        class_weight = [10.123203420301278, 1.0]
+    else:
+        class_weight = [4.431072018928066, 1.0]
+
+    model.compile(loss=weightedLoss2(keras.losses.binary_crossentropy, class_weight),
                   optimizer=optimizer,
                   metrics=['accuracy'])
     
     #get learning rate plots
     #get_lr_for_model(model, train_iterator)
-
     m_history = model.fit_generator(train_iterator,
                       samples_per_epoch = f_train.shape[0],
                       nb_epoch=training_config["epochs"],
                       steps_per_epoch = int(f_train.shape[0] // training_config["batch_size"]),
                       verbose=1,
                       callbacks=callbacks,
-                      validation_data=valid_iterator, 
-                      validation_steps = int(f_valid.shape[0]/1)) 
+                      validation_data=valid_iterator,
+                      validation_steps = int(f_valid.shape[0]/1))
     
     model.save("{}/model/final_model.h5".format(path))
     plot_history(m_history)
@@ -213,22 +236,26 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
-def write_front_view_GT():
-    root_path = '../'
-    if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-        print('Writing ground truth for front view')
-        generate_gt(os.path.abspath())
-    return
+# def write_front_view_GT():
+#     root_path = '../'
+#     if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+#         print('Writing ground truth for front view')
+#         generate_gt(os.path.abspath())
+#     return
 
 if __name__ == "__main__":
     #ensure the front view ground truth exists
-    write_front_view_GT()
-    
-#    test_road_segmentation()
+    # write_front_view_GT()
+
+    #test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
     parser.add_argument('--view', default='bev', type=str, help='BEV or top view, different DNNs to choose based on view')
+    parser.add_argument('--dataset', default='kitti', type=str, help='Dataset to use for training')
+    parser.add_argument('--sequences', default='', type=str, help='Sequences to use in case of SemanticKitti. '
+                                                                  'Values must be comma separated')
+
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
@@ -245,4 +272,8 @@ if __name__ == "__main__":
     k.tensorflow_backend.set_session(tf.Session(config=config))
     run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
-    test_all(args.model, args.view)
+    sequences = None
+    if len(args.sequences) > 0:
+        sequences = args.sequences.split(',')
+
+    test_all(args.model, args.view, args.dataset, sequences)
