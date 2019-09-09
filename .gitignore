@@ -106,6 +106,9 @@ venv.bak/
 # dataset related
 # dataset/
 dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/
+dataset/KITTI/dataset/data_road/training/gt_front/
+dataset/KITTI/dataset/data_road_velodyne/training/feature_maps/
+dataset/KITTI/dataset/data_road_velodyne/testing/feature_maps/
 dataset/SemanticKITTI/
 # Created by https://www.gitignore.io/api/pycharm+all
 # Edit at https://www.gitignore.io/?templates=pycharm+all

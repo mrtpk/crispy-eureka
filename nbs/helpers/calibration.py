@@ -3,15 +3,13 @@ import numpy as np
 import pandas as pd
 from pyntcloud import PyntCloud
 
-cbox = np.array([[0, 70.4], [-40, 40], [-3, 2]])
-
-
 class Object3d(object):
     """ 3d object label """
     def __init__(self, label_file_line):
         data = label_file_line.split(' ')
         data[1:] = [float(x) for x in data[1:]]
 
+        self.cbox = np.array([[0, 70.4], [-40, 40], [-3, 2]])
         # extract label, truncation, occlusion
         self.type = data[0]  # 'Car', 'Pedestrian', ...
         self.truncation = data[1]  # truncated pixel ratio [0..1]
@@ -261,6 +259,7 @@ class Calibration(object):
         depth_pc_velo = self.project_image_to_velo(depth_UVDepth)
         # print("dep_pc_velo:",depth_pc_velo.shape)
         if constraint_box:
+            cbox = self.cbox
             depth_box_fov_inds = (depth_pc_velo[:, 0] < cbox[0][1]) & \
                 (depth_pc_velo[:, 0] >= cbox[0][0]) & \
                 (depth_pc_velo[:, 1] < cbox[1][1]) & \
