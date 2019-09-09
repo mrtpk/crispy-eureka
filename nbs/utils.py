@@ -132,11 +132,11 @@ class KittiPointCloudClass:
         self.fwd_range = (6, 46)  # this is fixed here for KITTI
         self.res = .1
         self.res_planar = 300
-        # for running z_min, z_max
-        self.z_max = -10000.0
-        self.z_min = +10000.0
-        # self.COUNT_MIN = 0
-        self.COUNT_MAX = []
+        #for running z_min, z_max
+        #self.z_max = -10000.0
+        #elf.z_min = +10000.0
+        #self.COUNT_MIN = 0
+        #self.COUNT_MAX = []
         # todo we should change type of subsample parameter from boolean to integer
         self.subsample_ratio = 1
         self.write_to_disk = 1
@@ -194,22 +194,44 @@ class KittiPointCloudClass:
         np.save(write_path + fname_prefix, features)
         return
 
-    def write_all_features(self, dataset_name='kitti', partition_type='train'):
+    def write_all_features(self, dataset_name='kitti'):
         """
         this writes features for each input pointcloud over train, validation and test sets
         :return:
         """
-        if dataset_name == 'kitti':
-            if partition_type == 'train':
-                # write both train and valid here
-                write_path = '../dataset/KITTI/dataset/data_road_velodyne/training/feature_maps/'
-            if partition_type == 'valid':
-                # write only test here
-                write_path = '../dataset/KITTI/dataset/data_road_velodyne/testing/feature_maps/'
-        if dataset_name == 'semantickitti':
-            print('Update the paths here for semantic kitti')
-            print('Not support yet')
-            exit(1)
+        print('Writing all features')
+        for partition_type in ['train', 'test']:
+            if dataset_name == 'kitti':
+                if partition_type == 'train':
+                    # write both train and valid here
+                    write_path = '../dataset/KITTI/dataset/data_road_velodyne/training/feature_maps/'
+                    if not os.path.exists(write_path):
+                        os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+
+                if partition_type == 'valid':
+                    # write only test here
+                    write_path = '../dataset/KITTI/dataset/data_road_velodyne/testing/feature_maps/'
+                    if not os.path.exists(write_path):
+                        os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+
+            if dataset_name == 'semantickitti':
+                if partition_type == 'train':
+                    write_path = '../dataset/SemanticKitti/dataset/training/feature_maps/'
+                    if not os.path.exists(write_path):
+                            os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+                if partition_type == 'test':
+                    write_path = '../dataset/SemanticKitti/dataset/testing/feature_maps/'
+                    if not os.path.exists(write_path):
+                            os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+                exit(1)
 
         for i in tqdm(range(len(self.train_set["pc"]))):
             pc_path = self.train_set["pc"][i]
@@ -221,11 +243,7 @@ class KittiPointCloudClass:
         """
         This reads the whole dataset into memory
         """
-        print('Writing all features')
-        self.write_all_features(dataset_name='kitti', partition_type='train')
-        print('--------------------------------')
-        exit(0)
-        self.COUNT_MAX = []
+        #self.COUNT_MAX = []
         print('Reading cloud')
         f_train = dls.load_pc(self.train_set["pc"][0:])
         f_valid = dls.load_pc(self.valid_set["pc"][0:])
@@ -259,6 +277,8 @@ class KittiPointCloudClass:
 
         # Update with maximum points found within a cell to be used for normalization later
         print('Evaluating count')
+        self.COUNT_MIN = 0 
+        self.COUNT_MAX = []
         for _f in f_train + f_test:
             _filtered = pc.filter_points(_f, side_range=self.side_range,
                                          fwd_range=self.fwd_range)
@@ -278,6 +298,7 @@ class KittiPointCloudClass:
             f_cam_calib_valid = zip(f_valid, len(f_valid) * [None], len(f_valid) * [None])
             f_cam_calib_test = zip(f_test, len(f_test) * [None], len(f_test) * [None])
 
+            
         f_train = dls.process_list(f_cam_calib_train, self.get_features)
         f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
         f_test = dls.process_list(f_cam_calib_test, self.get_features)
@@ -288,7 +309,7 @@ class KittiPointCloudClass:
         gt_train = dls.process_img(self.train_set[gt_key][0:], func=lambda x: kitti_gt(x))
         gt_valid = dls.process_img(self.valid_set[gt_key][0:], func=lambda x: kitti_gt(x))
         gt_test = dls.process_img(self.test_set[gt_key][0:], func=lambda x: kitti_gt(x))
-        # instead of returning complete arrays write them file by file to reduce load on memory
+        
         return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(
             gt_test)
 
@@ -362,7 +383,7 @@ class KittiPointCloudClass:
             out_feature_map = np.dstack([out_feature_map, hog_features_map])
 
         # cell count normalization
-        out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / max(self.COUNT_MAX)
+        out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX
         return out_feature_map
 
     def get_classical_features(self, points, side_range, fwd_range, res, layers):

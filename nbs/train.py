@@ -113,7 +113,8 @@ def test_road_segmentation(model_name,
                                                                     subsample_ratio=subsample_ratio,
                                                                     dataset=dataset,
                                                                     sequences=sequences)
-
+    #KPC.write_all_features()
+    
     #get dataset should load all paths/write out txt file to write output feature maps
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset()
 
@@ -146,19 +147,26 @@ def test_road_segmentation(model_name,
         "loss_function": "binary_crossentropy",
         "learning_rate": 1e-3,
         "batch_size": 3,
-        "epochs": 120,
+        "epochs": 1,
         "optimizer": "keras.optimizers.Adam"  # "keras.optimizers.Nadam"
     }
 
     # this is the augmentation configuration we will use for training
-    train_datagen = ImageDataGenerator(horizontal_flip=True)
     read_all_into_memory = True
     if read_all_into_memory:
+        train_datagen = ImageDataGenerator(horizontal_flip=True)
         train_iterator = train_datagen.flow(f_train, gt_train,
                                             batch_size=training_config['batch_size'], shuffle=True)
     else:  # read flow from directory
-        train_iterator = train_datagen.flow(f_train, gt_train,
-                                            batch_size=training_config['batch_size'], shuffle=True)
+        """
+        source : https://github.com/keras-team/keras/blob/master/keras/preprocessing/image.py#L405
+        """
+        train_path = '../dataset/KITTI/dataset/data_road_velodyne/training/feature_maps/'
+        train_datagen = train_datagen.flow_from_directory(horizontal_flip=True,
+                                                        directory=train_path,
+                                                        target_size=(32, 32),
+                                                        batch_size=32,
+                                                        shuffle=False)
     # Validation
     valid_datagen = ImageDataGenerator(horizontal_flip=True)
     valid_iterator = valid_datagen.flow(f_valid, gt_valid,
@@ -202,7 +210,7 @@ def test_road_segmentation(model_name,
     # todo: move from class weight to focal loss
     if dataset == 'kitti':
         class_weight = [10.123203420301278, 1.0]
-    else:
+    else:#semantic kitti
         class_weight = [4.431072018928066, 1.0]
 
     model.compile(loss=binary_focal_loss(),
@@ -253,17 +261,30 @@ def test_road_segmentation(model_name,
     return result
 
 
-def write_front_view_GT():
-    root_path = '../'
-    if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-        print('Writing ground truth for front view')
-        generate_gt.generate_kitti_gt(os.path.abspath(root_path))
-    return
+def write_front_view_GT(dataset='kitti'):
+    """
+    Ensure the ground truth for front view is written for KITTI-Road Seg
+    """
+    if dataset=='kitti':
+        root_path = '../'
+        if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+            print('Writing ground truth for front view')
+            generate_gt.generate_kitti_gt(os.path.abspath(root_path))
+    
+    if dataset=='semantickitti':
+        root_path = '../dataset/SemanticKITTI/dataset/'
+        if not os.path.exists('../dataset/SemanticKITTI/dataset/training/'):
+            print('Writing ground truth for front view')
+            generate_gt.generate_semantic_kitti_gt(os.path.abspath(root_path))
 
+    return
 
 if __name__ == "__main__":
     # ensure the front view ground truth exists
-    write_front_view_GT()
+    write_all_groundtruths = False #make this true to write all ground truths
+    if write_all_groundtruths:
+        write_front_view_GT(dataset='kitti')
+        # write_front_view_GT(dataset='semantickitti')
 
     # test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")

@@ -7,7 +7,7 @@ from skimage.morphology import closing, opening, rectangle, square
 # local imports
 from . import calibration
 from . import data_loaders as dls
-
+from tqdm import tqdm
 
 def retrieve_layers(points):
     '''
@@ -306,7 +306,7 @@ def generate_kitti_gt(path):
         gt_front_img.save(os.path.join(gt_front_new_dir, gt_bev_path.split('/')[-1]))
 
 
-def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, start_idx=0):
+def generate_semantic_kitti_gt(path, sequences=None, view='front', classes=None, start_idx=0):
     """
     Function that generate the gt view
 
@@ -336,6 +336,7 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
 
     gt_dirname = 'gt_front' if view == 'front' else 'gt_bev'
 
+    
     for s in sequences:
         pc_files = sorted(glob(os.path.join(basedir, s, 'velodyne') + '/*.bin'))
         label_files = sorted(glob(os.path.join(basedir, s, 'labels') + '/*.label'))
@@ -343,8 +344,8 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
         assert len(pc_files) == len(label_files)
 
         os.makedirs(os.path.join(basedir, s, gt_dirname), exist_ok=True)
-        for pcf, lf in zip(pc_files[start_idx:], label_files[start_idx:]):
-            print("Processing file: ", pcf.split('/')[-1].split('.')[0])
+        for pcf, lf in tqdm(zip(pc_files[start_idx:], label_files[start_idx:])):
+            #print("Processing file: ", pcf.split('/')[-1].split('.')[0])
             pc = np.fromfile(pcf, dtype=np.float32).reshape(-1, 4)
             labels = np.fromfile(lf, dtype=np.uint32).reshape((-1))
             labels = labels & 0xFFFF
@@ -355,6 +356,7 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
                 gt_img.save(os.path.join(basedir, s, gt_dirname, pcf.split('/')[-1].split('.')[0] + '.png'))
 
             elif view == 'bev':
+                print('semantic kitti will not be evaluated in BEV')
                 pass
                 # retrieve layers from point cloud
                 # gt_img = project_gt_bev(np.c_[pc, labels_to_proj])
@@ -399,7 +401,7 @@ if __name__ == "__main__":
 
     elif args.dataset.lower() == 'semantickitti':
         generate_semantic_kitti_gt(os.path.join(os.path.abspath(PATH), 'dataset', 'SemanticKITTI', 'dataset'),
-                                   sequences=['05', '08'],
+                                   sequences=['00', '01', '05', '08'],
                                    view=args.view,
                                    start_idx=int(args.start)
                                    )
