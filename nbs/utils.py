@@ -41,14 +41,15 @@ def get_basic_callbacks(path):
     best_model_path = "{}/model/best_model.h5".format(path) #? .hd5
     save_the_best = keras.callbacks.ModelCheckpoint(filepath=best_model_path,
                                                     verbose=1, save_best_only=True)
-    # save models after few epochs
-    epoch_save_path = "{}/model/*.h5".format(path)
-    save_after_epoch = keras.callbacks.ModelCheckpoint(filepath=epoch_save_path.replace('*', 'e{epoch:02d}-val_acc{val_acc:.2f}'),
-                                                       monitor='val_acc', verbose=1, period = 1)
+    # # save models after few epochs
+    # epoch_save_path = "{}/model/*.h5".format(path)
+    # save_after_epoch = keras.callbacks.ModelCheckpoint(filepath=epoch_save_path.replace('*', 'e{epoch:02d}-val_acc{val_acc:.2f}'),
+    #                                                    monitor='val_acc', verbose=1, period = 1)
 
     stopping = EarlyStopping(monitor='val_loss', patience=20, verbose=0, mode='auto')
 
-    return [tensorboard, save_the_best, save_after_epoch, stopping]
+    # return [tensorboard, save_the_best, save_after_epoch, stopping]
+    return [tensorboard, save_the_best, stopping]
 
 
 def apply_argmax(res):
@@ -64,7 +65,7 @@ def get_first_chan(points):
     return points[:, :, 0]
 
 
-def measure_perf(path, all_pred, all_gt):
+def measure_perf(path, all_pred, all_gt, threshold=0.5):
     result_path = "{}/output/*".format(path)
     os.makedirs(os.path.dirname(result_path), exist_ok=True)
     F1, P, R, ACC = [], [], [], []
@@ -72,7 +73,8 @@ def measure_perf(path, all_pred, all_gt):
     AP = []
     for i in range(all_pred.shape[0]):
         _f, _gt = all_pred[i], all_gt[i]
-        p_road = apply_argmax(_f)       
+        # p_road = apply_argmax(_f)
+        p_road = (_f > threshold)[:, :, 0]
         # get metrics
         gt_road = _gt[:, :, 0]
         fn, fp, tp, tn = get_metrics_count(pred=p_road, gt=gt_road)
@@ -125,8 +127,13 @@ class KittiPointCloudClass:
         self.subsample = subsample  # Flag
         self.compute_HOG = compute_HOG  # Flag
         self.view = view
-        self.side_range=(-10, 10)  # this is fixed here for KITTI
-        self.fwd_range=(6, 46)  # this is fixed here for KITTI
+        if dataset != 'kitti' and view!='bev':
+            self.side_range = (-100, 100)
+            self.fwd_range = (0, 100)
+        else:
+            self.side_range=(-10, 10)  # this is fixed here for KITTI
+            self.fwd_range=(6, 46)  # this is fixed here for KITTI
+
         self.res=.1
         self.res_planar = 300
         # todo we should change type of subsample parameter from boolean to integer
@@ -265,7 +272,11 @@ class KittiPointCloudClass:
         # azimuthal angles of the points
         az_angles = np.arccos(z / radial)
         # todo: check the case of a sub sampled point cloud
-        az_means = np.zeros(len(unique))
+        len_azimuthal = 64
+        if self.subsample:
+            len_azimuthal = 32 if self.subsample_ratio != 4 else 16
+
+        az_means = np.zeros(len_azimuthal)
         for n in unique:
             az_means[n] = az_angles[layers==n].mean()
 
