@@ -112,7 +112,7 @@ def get_unet_model(input_size = (400,200,6), subsample_ratio=1):
 
 
 def conv2dLeakyDownProj(layer_input, filters, output,f_size=3):
-    d = Conv2D(filters, kernel_size=f_size, strides=2, padding='same')(layer_input)
+    d = Conv2D(filters, kernel_size=f_size, strides=(1, 2), padding='same')(layer_input)
     d = LeakyReLU(alpha=0.2)(d)
     d = Conv2D(output, kernel_size=1, padding='same')(d)
     d = LeakyReLU(alpha=0.2)(d)
@@ -133,7 +133,7 @@ def conv2dLeaky(layer_input, filters, f_size=3):
     return d
 
 
-def u_net6(shape, filters=4, f_size=3, int_space=4, output_channels=4, rate=.3):
+def u_net6(shape, filters=4, f_size=3, int_space=4, output_channels=4, rate=.3, subsample_ratio=1):
     if K.image_data_format() == 'channels_first':
         channel_axis = 1
     else:
@@ -153,20 +153,30 @@ def u_net6(shape, filters=4, f_size=3, int_space=4, output_channels=4, rate=.3):
     pool4 = Dropout(rate)(pool4)
     pool5 = conv2dLeakyDownProj(pool4, filters, int_space, f_size=f_size)
     pool5 = Dropout(rate)(pool5)
-    up4 = concatenate([UpSampling2D(size=(2, 2))(pool5), pool4], axis=channel_axis)
+    up4 = concatenate([UpSampling2D(size=(1, 2))(pool5), pool4], axis=channel_axis)
     conv4 = conv2dLeakyProj(up4, filters, int_space, f_size=f_size)
     conv4 = Dropout(rate)(conv4)
-    up3 = concatenate([UpSampling2D(size=(2, 2))(conv4), pool3], axis=channel_axis)
+    up3 = concatenate([UpSampling2D(size=(1, 2))(conv4), pool3], axis=channel_axis)
     conv3 = conv2dLeakyProj(up3, filters, int_space, f_size=f_size)
     conv3 = Dropout(rate)(conv3)
-    up2 = concatenate([UpSampling2D(size=(2, 2))(conv3), pool2], axis=channel_axis)
+    up2 = concatenate([UpSampling2D(size=(1, 2))(conv3), pool2], axis=channel_axis)
     conv2 = conv2dLeakyProj(up2, filters, int_space, f_size=f_size)
     conv2 = Dropout(rate)(conv2)
-    up1 = concatenate([UpSampling2D(size=(2, 2))(conv2), pool1], axis=channel_axis)
+    up1 = concatenate([UpSampling2D(size=(1, 2))(conv2), pool1], axis=channel_axis)
     conv1 = conv2dLeakyProj(up1, filters, int_space, f_size=f_size)
     conv1 = Dropout(rate)(conv1)
-    up0 = concatenate([UpSampling2D(size=(2, 2))(conv1), inputs], axis=channel_axis)
-    conv0 = conv2dLeaky(up0, output_channels, f_size=f_size)
+    up0 = concatenate([UpSampling2D(size=(1, 2))(conv1), inputs], axis=channel_axis)
+    conv0 = conv2dLeaky(up0, 2, f_size=f_size)
+
+    if subsample_ratio % 2 == 0:
+        conv0 = keras.layers.Conv2D(8, 3, activation= 'relu', padding='same', kernel_initializer='he_normal')(
+            keras.layers.UpSampling2D(size=(2, 1))(conv0))
+
+    if subsample_ratio % 4 == 0:
+        conv0 = keras.layers.Conv2D(8, 3, activation='relu', padding='same', kernel_initializer='he_normal')(
+            keras.layers.UpSampling2D(size=(2, 1))(conv0))
+
+    conv0 = keras.layers.Conv2D(1, 1, activation='sigmoid')(conv0)
     #  conv0  = GaussianNoise(rate)(conv0)
     return Model(inputs, conv0)
 
