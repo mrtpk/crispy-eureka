@@ -5,7 +5,6 @@
 # func to load the gt from KITTI and LODNN
 # get_image : load the image specified in path
 
-import random
 import numpy as np
 import cv2
 from glob import glob
@@ -68,18 +67,13 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
         testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
 
         for s in sequences:
-            random.seed(1)
-            imgs_list = glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png')
-            pc_list = glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin')
-            gt_bev_list = glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png')
-            gt_front_list = glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png')
+            imgs_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+            pc_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+            gt_bev_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+            gt_front_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
             calib_list = len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
                          [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
-            random.shuffle(imgs_list)
-            random.shuffle(pc_list)
-            random.shuffle(gt_bev_list)
-            random.shuffle(gt_front_list)
-            random.shuffle(calib_list)
+
             # the first 80% of the cases are putted in the train the remaining 20% are used for validation
             num_frames_in_seq = len(imgs_list)
             n_frames_in_train = np.floor(num_frames_in_seq * 0.8).astype(int)
@@ -97,7 +91,12 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
                 validset['gt_front'] += gt_front_list[n_frames_in_train:]
                 validset['calib'] += calib_list[n_frames_in_train:]
 
-            elif s in test_sequences:
+            if s in test_sequences:
+                imgs_list = imgs_list[0:-1:10]
+                pc_list = pc_list[0:-1:10]
+                gt_bev_list = gt_bev_list[0:-1:10]
+                gt_front_list = gt_front_list[0:-1:10]
+                calib_list = calib_list[0:-1:10]
                 if s == '01':  ## to speedup training. todo remove this condition later
                     testset['imgs'] += imgs_list[:10]
                     testset['pc'] += pc_list[:10]
