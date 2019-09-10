@@ -43,7 +43,7 @@ def load_dataset(add_geometrical_features=True,
                                      dataset=dataset,
                                      sequences=sequences)
 
-    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index=-1)
+    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset()
     gt_test = remove_bg(gt_test)
     return f_test, gt_test
 
@@ -135,7 +135,6 @@ def compute_scores(pred, gt, threshold=0.5):
     # argmax_pred = 1 - np.argmax(pred, axis=3)
     # argmax_pred = argmax_pred.flatten()
     argmax_pred = (pred > threshold).flatten()
-    # f1, recall, precision, acc, jaccard = utils.get_metrics(gt=gt_all, pred=argmax_pred)
     acc = accuracy_score(gt_all, argmax_pred)
     recall = recall_score(gt_all, argmax_pred)
     precision = precision_score(gt_all, argmax_pred)
