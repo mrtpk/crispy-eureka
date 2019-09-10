@@ -18,7 +18,6 @@ import helpers.generate_gt as generate_gt
 # cyclic lr
 import keras_contrib
 
-
 # from helpers.sgdr import SGDRScheduler
 # from helpers.lr_finder import LRFinder, get_lr_for_model
 
@@ -147,16 +146,23 @@ def test_road_segmentation(model_name,
         "loss_function": "binary_crossentropy",
         "learning_rate": 1e-3,
         "batch_size": 3,
-        "epochs": 1,
+        "epochs": 120,
         "optimizer": "keras.optimizers.Adam"  # "keras.optimizers.Nadam"
     }
-
+    # we create two instances with the same arguments
+    dict_aug_args = dict(horizontal_flip=True)
+    seed = 1
+    train_datagen = ImageDataGenerator(**dict_aug_args)
+    mask_datagen = ImageDataGenerator(**dict_aug_args)
     # this is the augmentation configuration we will use for training
     read_all_into_memory = True
     if read_all_into_memory:
-        train_datagen = ImageDataGenerator(horizontal_flip=True)
-        train_iterator = train_datagen.flow(f_train, gt_train,
-                                            batch_size=training_config['batch_size'], shuffle=True)
+        # Provide the same seed and keyword arguments to the fit and flow methodsf_
+        train_generator = train_datagen.flow(f_train,
+                                            batch_size=training_config['batch_size'], shuffle=True, seed=seed)
+        mask_generator = mask_datagen.flow(gt_train, batch_size=training_config['batch_size'], shuffle=True, seed=seed)
+
+        train_iterator = zip(train_generator, mask_generator)
     else:  # read flow from directory
         """
         source : https://github.com/keras-team/keras/blob/master/keras/preprocessing/image.py#L405
@@ -168,10 +174,14 @@ def test_road_segmentation(model_name,
                                                         batch_size=32,
                                                         shuffle=False)
     # Validation
-    valid_datagen = ImageDataGenerator(horizontal_flip=True)
-    valid_iterator = valid_datagen.flow(f_valid, gt_valid,
-                                        batch_size=1, shuffle=True)
-    # Test 
+    seed = 2
+    valid_datagen = ImageDataGenerator(**dict_aug_args)
+    valid_mask_datagen = ImageDataGenerator(**dict_aug_args)
+    valid_generator = valid_datagen.flow(f_valid, batch_size=1, shuffle=True, seed=seed)
+    valid_mask_generator = valid_mask_datagen.flow(gt_valid, batch_size=1, shuffle=True, seed=seed)
+
+    valid_iterator = zip(valid_generator, valid_mask_generator)
+    # Test
     # test_datagen = ImageDataGenerator() #horizontal_flip=True #add this ?
     # test_iterator = test_datagen.flow(f_test, gt_test,
     #                 batch_size=1, shuffle=True)
@@ -270,7 +280,7 @@ def write_front_view_GT(dataset='kitti'):
         if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
             print('Writing ground truth for front view')
             generate_gt.generate_kitti_gt(os.path.abspath(root_path))
-    
+
     if dataset=='semantickitti':
         root_path = '../dataset/SemanticKITTI/dataset/'
         if not os.path.exists('../dataset/SemanticKITTI/dataset/training/'):
