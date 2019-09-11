@@ -7,12 +7,14 @@ from helpers import data_loaders as dls
 from helpers import pointcloud as pc
 from helpers.normals import estimate_normals_from_spherical_img
 from helpers.calibration import get_lidar_in_image_fov
+from helpers.calibration import Calibration
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import average_precision_score
 from sklearn.decomposition import PCA
 from skimage.morphology import opening, rectangle
 import keras
 from keras.callbacks import TensorBoard, EarlyStopping
+from tqdm import tqdm
 
 from pyntcloud import PyntCloud
 import pandas as pd
@@ -41,17 +43,17 @@ def get_basic_callbacks(path):
     log_path = "{}/log/".format(path)
     tensorboard = TensorBoard(log_dir="{}/{}".format(log_path, time()))
     # save best model
-    best_model_path = "{}/model/best_model.h5".format(path) #? .hd5
+    best_model_path = "{}/model/best_model.h5".format(path)  # ? .hd5
     save_the_best = keras.callbacks.ModelCheckpoint(filepath=best_model_path,
                                                     verbose=1, save_best_only=True)
-    # save models after few epochs
-    epoch_save_path = "{}/model/*.h5".format(path)
-    save_after_epoch = keras.callbacks.ModelCheckpoint(filepath=epoch_save_path.replace('*', 'e{epoch:02d}-val_acc{val_acc:.2f}'),
-                                                       monitor='val_acc', verbose=1, period = 1)
-
+    # # save models after few epochs
+    # epoch_save_path = "{}/model/*.h5".format(path)
+    # save_after_epoch = keras.callbacks.ModelCheckpoint(filepath=epoch_save_path.replace('*', 'e{epoch:02d}-val_acc{val_acc:.2f}'),
+    #                                                    monitor='val_acc', verbose=1, period = 1)
     stopping = EarlyStopping(monitor='val_loss', patience=20, verbose=0, mode='auto')
 
-    return [tensorboard, save_the_best, save_after_epoch, stopping]
+    # return [tensorboard, save_the_best, save_after_epoch, stopping]
+    return [tensorboard, save_the_best, stopping]
 
 
 def apply_argmax(res):
@@ -59,7 +61,6 @@ def apply_argmax(res):
 
 
 def get_z(points):
-    # return points[:,2].reshape(-1,1)
     return np.array([np.min(points[:, 2]), np.max(points[:, 2])])
 
 
@@ -67,7 +68,7 @@ def get_first_chan(points):
     return points[:, :, 0]
 
 
-def measure_perf(path, all_pred, all_gt):
+def measure_perf(path, all_pred, all_gt, threshold=0.5):
     result_path = "{}/output/*".format(path)
     os.makedirs(os.path.dirname(result_path), exist_ok=True)
     F1, P, R, ACC = [], [], [], []
@@ -75,7 +76,8 @@ def measure_perf(path, all_pred, all_gt):
     AP = []
     for i in range(all_pred.shape[0]):
         _f, _gt = all_pred[i], all_gt[i]
-        p_road = apply_argmax(_f)       
+        # p_road = apply_argmax(_f)
+        p_road = (_f > threshold)[:, :, 0]
         # get metrics
         gt_road = _gt[:, :, 0]
         fn, fp, tp, tn = get_metrics_count(pred=p_road, gt=gt_road)
@@ -90,24 +92,25 @@ def measure_perf(path, all_pred, all_gt):
         FP.append(fp)
         TN.append(tn)
         FN.append(fn)
-        
-    eps = np.finfo(np.float32).eps        
-    _acc = (sum(TP)+sum(TN))/(sum(TP)+sum(FP)+sum(TN)+sum(FN) + eps)
-    _recall = sum(TP)/(sum(TP) + sum(FN)+eps)
-    _precision = sum(TP)/(sum(TP) + sum(FP)+eps)
-    _f1 = 2*((precision * recall)/(precision + recall))    
+
+    eps = np.finfo(np.float32).eps
+    _acc = (sum(TP) + sum(TN)) / (sum(TP) + sum(FP) + sum(TN) + sum(FN) + eps)
+    _recall = sum(TP) / (sum(TP) + sum(FN) + eps)
+    _precision = sum(TP) / (sum(TP) + sum(FP) + eps)
+    _f1 = 2 * ((precision * recall) / (precision + recall))
     return {
-           "accuracy" : _acc,
-           "recall" : _recall,
-           "precision" : _precision,
-           "F1" : _f1
-           }
+        "accuracy": _acc,
+        "recall": _recall,
+        "precision": _precision,
+        "F1": _f1
+    }
 
 
 class KittiPointCloudClass:
     """ 
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
+
     def __init__(self, dataset_path,
                  add_geometrical_features,
                  subsample,
@@ -131,12 +134,24 @@ class KittiPointCloudClass:
         self.compute_eigen = eigen_neighbors > 0 # Flag
         self.kneighbors = eigen_neighbors
         self.view = view
-        self.side_range=(-10, 10)  # this is fixed here for KITTI
-        self.fwd_range=(6, 46)  # this is fixed here for KITTI
+        if dataset != 'kitti' and view!='bev':
+            self.side_range = (-100, 100)
+            self.fwd_range = (0, 100)
+        else:
+            self.side_range=(-10, 10)  # this is fixed here for KITTI
+            self.fwd_range=(6, 46)  # this is fixed here for KITTI
+
         self.res=.1
+
         self.res_planar = 300
+        #for running z_min, z_max
+        #self.z_max = -10000.0
+        #elf.z_min = +10000.0
+        #self.COUNT_MIN = 0
+        #self.COUNT_MAX = []
         # todo we should change type of subsample parameter from boolean to integer
         self.subsample_ratio = 1
+        self.write_to_disk = 1
 
         if self.subsample:  # in  case we subsample we fix sub_sample ratio bigger than 1
             self.subsample_ratio = 2 if subsample_ratio == 1 else subsample_ratio
@@ -145,76 +160,145 @@ class KittiPointCloudClass:
 
         # calculate the image dimensions
         if self.view == 'bev':
-            self.img_width = int((self.side_range[1] - self.side_range[0])/self.res)
-            self.img_height = int((self.fwd_range[1] - self.fwd_range[0])/self.res)
+            self.img_width = int((self.side_range[1] - self.side_range[0]) / self.res)
+            self.img_height = int((self.fwd_range[1] - self.fwd_range[0]) / self.res)
             self.number_of_grids = self.img_height * self.img_width
         else:
+            """
+            front view
+            """
             self.img_width = np.ceil(np.pi * self.res_planar).astype(int)
             self.img_height = self.num_layers
             self.number_of_grids = self.img_width * self.img_height
 
-    def get_dataset(self, limit_index=3):
-        print(self.train_set.keys())
-        """ NOTE: change limit_index to -1 to train on the whole dataset """
+    def write_pc_features(self, pc_path, cal_path, cam_img_path, write_path):
+        """
+        Return feature maps as written file
+        :param pc_path: pointcloud path
+        :param cal_path: calibration file path for camera
+        :param cam_img_path: camera image path
+        :param write_path: output file path
+        :param fname: output feature file name
+        :return: writes features to specificed path
+        """
+        fname = os.path.split(pc_path)[-1].split('.')[0]
+        points = dls.load_bin_file(pc_path)
+        cal = Calibration(cal_path)
+        img = dls.get_image(cam_img_path)
+
+        self.z_min = min(self.z_min, np.min(points[:, 2]))
+        self.z_max = max(self.z_max, np.max(points[:, 2]))
+
+        fname_prefix = "features_" + fname + '_'
+        if self.subsample:
+            points = subsample_pc(points, sub_ratio=self.subsample_ratio)
+            fname_prefix = fname_prefix + 'subsample_' + self.subsample_ratio + '_'
+        filtered_points = pc.filter_points(points, side_range=self.side_range,
+                                           fwd_range=self.fwd_range)
+        f_count = self.get_count_features(filtered_points)
+        self.COUNT_MAX.append(int(np.max(f_count)))
+        raw_info = []
+        raw_info.append(points)
+        raw_info.append(img)
+        raw_info.append(cal)
+        raw_info.append(write_path + fname_prefix)
+        features = self.get_features(raw_info=raw_info)
+        np.save(write_path + fname_prefix, features)
+        return
+
+    def write_all_features(self, dataset_name='kitti'):
+        """
+        this writes features for each input pointcloud over train, validation and test sets
+        :return:
+        """
+        print('Writing all features')
+        for partition_type in ['train', 'test']:
+            if dataset_name == 'kitti':
+                if partition_type == 'train':
+                    # write both train and valid here
+                    write_path = '../dataset/KITTI/dataset/data_road_velodyne/training/feature_maps/'
+                    if not os.path.exists(write_path):
+                        os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+
+                if partition_type == 'valid':
+                    # write only test here
+                    write_path = '../dataset/KITTI/dataset/data_road_velodyne/testing/feature_maps/'
+                    if not os.path.exists(write_path):
+                        os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+
+            if dataset_name == 'semantickitti':
+                if partition_type == 'train':
+                    write_path = '../dataset/SemanticKitti/dataset/training/feature_maps/'
+                    if not os.path.exists(write_path):
+                            os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+                if partition_type == 'test':
+                    write_path = '../dataset/SemanticKitti/dataset/testing/feature_maps/'
+                    if not os.path.exists(write_path):
+                            os.makedirs(write_path)
+                    else:#if folder is created dont create features
+                        return
+                exit(1)
+
+        for i in tqdm(range(len(self.train_set["pc"]))):
+            pc_path = self.train_set["pc"][i]
+            cal_path = self.train_set["calib"][i]
+            cam_img_path = self.train_set["imgs"][i]
+            self.write_pc_features(pc_path, cal_path, cam_img_path, write_path)
+
+    def get_dataset(self):
+        """
+        This reads the whole dataset into memory
+        """
+        #self.COUNT_MAX = []
         print('Reading cloud')
-        if limit_index > 0:
-            f_train = dls.load_pc(self.train_set["pc"][0:limit_index])
-            f_valid = dls.load_pc(self.valid_set["pc"][0:limit_index])
-            f_test = dls.load_pc(self.test_set["pc"][0:limit_index])
-            if self.compute_HOG:
-                print('Reading calibration files')
-                cal_train = dls.process_calib(self.train_set["calib"][0:limit_index])
-                cal_valid = dls.process_calib(self.valid_set["calib"][0:limit_index])
-                cal_test = dls.process_calib(self.test_set["calib"][0:limit_index])
+        f_train = dls.load_pc(self.train_set["pc"][0:])
+        f_valid = dls.load_pc(self.valid_set["pc"][0:])
+        f_test = dls.load_pc(self.test_set["pc"][0:])
 
-                print('Reading camera images')
-                cam_img_train = dls.load_img(self.train_set["imgs"][0:limit_index])
-                cam_img_valid = dls.load_img(self.valid_set["imgs"][0:limit_index])
-                cam_img_test = dls.load_img(self.test_set["imgs"][0:limit_index])
+        if self.compute_HOG:
+            print('Reading calibration files')
+            cal_train = dls.process_calib(self.train_set["calib"][0:])
+            cal_valid = dls.process_calib(self.valid_set["calib"][0:])
+            cal_test = dls.process_calib(self.test_set["calib"][0:])
 
-        else:
-            f_train = dls.load_pc(self.train_set["pc"][0:])
-            f_valid = dls.load_pc(self.valid_set["pc"][0:])
-            f_test = dls.load_pc(self.test_set["pc"][0:])
-            if self.compute_HOG:
-                print('Reading calibration files')
-                cal_train = dls.process_calib(self.train_set["calib"][0:])
-                cal_valid = dls.process_calib(self.valid_set["calib"][0:])
-                cal_test = dls.process_calib(self.test_set["calib"][0:])
+            print('Reading camera images')
+            cam_img_train = dls.load_img(self.train_set["imgs"][0:])
+            cam_img_valid = dls.load_img(self.valid_set["imgs"][0:])
+            cam_img_test = dls.load_img(self.test_set["imgs"][0:])
 
-                print('Reading camera images')
-                cam_img_train = dls.load_img(self.train_set["imgs"][0:])
-                cam_img_valid = dls.load_img(self.valid_set["imgs"][0:])
-                cam_img_test = dls.load_img(self.test_set["imgs"][0:])
-
-
-        #Update min max z
+        # Update min max z
         z_vals = dls.process_list(f_train + f_valid, get_z)
         z_vals = np.concatenate([z_vals])
         print(z_vals.shape)
-        self.z_min, self.z_max = np.min(z_vals[:,0]), np.max(z_vals[:,1])
+        self.z_min, self.z_max = np.min(z_vals[:, 0]), np.max(z_vals[:, 1])
         print("Height ranges from {} to {}".format(self.z_min, self.z_max))
-        
+
         if self.subsample:
             print('Read and Subsample cloud')
             t = time()
             f_train = dls.process_list(f_train, subsample_pc, sub_ratio=self.subsample_ratio)
             f_valid = dls.process_list(f_valid, subsample_pc, sub_ratio=self.subsample_ratio)
             f_test = dls.process_list(f_test, subsample_pc, sub_ratio=self.subsample_ratio)
-            print('Evaluated in : '+repr(time()-t))
+            print('Evaluated in : ' + repr(time() - t))
 
         # Update with maximum points found within a cell to be used for normalization later
         print('Evaluating count')
         self.COUNT_MIN = 0 
         self.COUNT_MAX = []
-        for _f in f_train+f_test:
-            _filtered = pc.filter_points(_f, side_range=self.side_range, 
+        for _f in f_train + f_test:
+            _filtered = pc.filter_points(_f, side_range=self.side_range,
                                          fwd_range=self.fwd_range)
             f_count = self.get_count_features(_filtered)
             self.COUNT_MAX.append(int(np.max(f_count)))
         self.COUNT_MAX = max(self.COUNT_MAX)
-        print("Count varies from {} to {}".format(self.COUNT_MIN, self.COUNT_MAX))    
-            
+        print("Count varies from 0 to {}".format(self.COUNT_MAX))
+
         print('Extracting features')
         t = time()
         if self.compute_HOG:
@@ -226,23 +310,20 @@ class KittiPointCloudClass:
             f_cam_calib_valid = zip(f_valid, len(f_valid) * [None], len(f_valid) * [None])
             f_cam_calib_test = zip(f_test, len(f_test) * [None], len(f_test) * [None])
 
+            
         f_train = dls.process_list(f_cam_calib_train, self.get_features)
         f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
         f_test = dls.process_list(f_cam_calib_test, self.get_features)
-        print('Evaluated in : '+repr(time()-t))
+
+        print('Evaluated in : ' + repr(time() - t))
 
         gt_key = 'gt_bev' if self.view == 'bev' else 'gt_front'
-
-        if limit_index > 0:
-            gt_train = dls.process_img(self.train_set[gt_key][0:limit_index], func=lambda x: kitti_gt(x))
-            gt_valid = dls.process_img(self.valid_set[gt_key][0:limit_index], func=lambda x: kitti_gt(x))
-            gt_test = dls.process_img(self.test_set[gt_key][0:limit_index], func=lambda x: kitti_gt(x))
-        else:
-            gt_train = dls.process_img(self.train_set[gt_key][0:], func=lambda x: kitti_gt(x))
-            gt_valid = dls.process_img(self.valid_set[gt_key][0:], func=lambda x: kitti_gt(x))
-            gt_test = dls.process_img(self.test_set[gt_key][0:], func=lambda x: kitti_gt(x))
-
-        return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(gt_test)
+        gt_train = dls.process_img(self.train_set[gt_key][0:], func=lambda x: kitti_gt(x))
+        gt_valid = dls.process_img(self.valid_set[gt_key][0:], func=lambda x: kitti_gt(x))
+        gt_test = dls.process_img(self.test_set[gt_key][0:], func=lambda x: kitti_gt(x))
+        
+        return np.array(f_train), np.array(f_valid), np.array(f_test), np.array(gt_train), np.array(gt_valid), np.array(
+            gt_test)
 
     def get_features(self, raw_info):
         '''
@@ -254,11 +335,12 @@ class KittiPointCloudClass:
         points = raw_info[0]
         img = raw_info[1]
         calib = raw_info[2]
+
         # vector containing for each point the id of the layer that captured the point
         if self.subsample:
-            layers= points[:, 4].astype(int) // self.subsample_ratio
+            layers = points[:, 4].astype(int) // self.subsample_ratio
         else:
-            layers = retrieve_layers(points[:,:3])
+            layers = retrieve_layers(points[:, :3])
 
         unique = np.unique(layers)
 
@@ -267,13 +349,17 @@ class KittiPointCloudClass:
         y = points[:, 1]
         z = points[:, 2]
         # radial distance from scanner
-        radial = np.square( x**2 + y**2 )
+        radial = np.square(x ** 2 + y ** 2)
         # azimuthal angles of the points
         az_angles = np.arccos(z / radial)
         # todo: check the case of a sub sampled point cloud
-        az_means = np.zeros(len(unique))
+        len_azimuthal = 64
+        if self.subsample:
+            len_azimuthal = 32 if self.subsample_ratio != 4 else 16
+
+        az_means = np.zeros(len_azimuthal)
         for n in unique:
-            az_means[n] = az_angles[layers==n].mean()
+            az_means[n] = az_angles[layers == n].mean()
 
         # adding to point cloud information about layers
         points = np.c_[points, layers]
@@ -321,7 +407,6 @@ class KittiPointCloudClass:
 
         # cell count normalization
         out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX
-
         return out_feature_map
     
     def get_eigen_features(self, points):
@@ -436,7 +521,7 @@ class KittiPointCloudClass:
             lidx, _, _ = _get_lidx(points, self.side_range, self.fwd_range, self.res)
         else:
             if self.subsample:
-                l = points[:,4].astype(int) // self.subsample_ratio
+                l = points[:, 4].astype(int) // self.subsample_ratio
                 lidx, _, _ = _get_spherical_lidx(points, self.res_planar, layers=l)
             else:
                 lidx, _, _ = _get_spherical_lidx(points, self.res_planar)
@@ -483,7 +568,7 @@ def get_metrics(pred, gt):
     return f1, recall, precision, acc
 
 
-#Dataset utils
+# Dataset utils
 def kitti_gt(img):
     road = img[:, :, 0] / 255  # Road is encoded as 255 in the B plane
     non_road = 1 - road  # TODO: can we do this in training time?
@@ -536,7 +621,7 @@ def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=
     planar_angles = np.arctan2(-y, x) + np.pi / 2
     radial_dist = np.sqrt(x ** 2 + y ** 2 + z ** 2)
     if az is None:
-        azimuthal_angles = np.arccos(z / np.sqrt(x**2 + y ** 2))
+        azimuthal_angles = np.arccos(z / np.sqrt(x ** 2 + y ** 2))
         az = np.zeros(num_layers)
         for n in range(num_layers):
             az[n] = azimuthal_angles[layers == n].mean()
@@ -547,7 +632,7 @@ def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=
     rho_img = np.zeros((img_height, img_width))
     # assign values to rho_img
     for n in range(len(points)):
-        rho_img[I[n], J[n]] = max(rho_img[I[n],J[n]],radial_dist[n])
+        rho_img[I[n], J[n]] = max(rho_img[I[n], J[n]], radial_dist[n])
 
     # dilate rho_image to fill empty cells
     dil_rho = dilation(rho_img, square(3))
@@ -571,44 +656,43 @@ def get_normals(points, res_planar, num_layers, layers=None, az=None, return_3d=
 
 def _get_lidx(points, side_range, fwd_range, res):
     # calculate the image dimensions
-    img_width = int((side_range[1] - side_range[0])/res)
-    img_height = int((fwd_range[1] - fwd_range[0])/res)
-    
+    img_width = int((side_range[1] - side_range[0]) / res)
+    img_height = int((fwd_range[1] - fwd_range[0]) / res)
+
     x_lidar = points[:, 0]
     y_lidar = points[:, 1]
-    
+
     # MAPPING
     # Mappings from one point to grid 
     # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
-    x_img_mapping = (-y_lidar/res).astype(np.int32)  # x axis is -y in LIDAR
-    y_img_mapping = (x_lidar/res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
+    x_img_mapping = (-y_lidar / res).astype(np.int32)  # x axis is -y in LIDAR
+    y_img_mapping = (x_lidar / res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
 
     # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
     # floor used to prevent issues with -ve vals rounding upwards
-    x_img_mapping -= int(np.floor(side_range[0]/res))
-    y_img_mapping -= int(np.floor(fwd_range[0]/res))
+    x_img_mapping -= int(np.floor(side_range[0] / res))
+    y_img_mapping -= int(np.floor(fwd_range[0] / res))
 
     # Linerize the mappings to 1D
     lidx = ((-y_img_mapping) % img_height) * img_width + x_img_mapping
-    
+
     return lidx, x_img_mapping, y_img_mapping
 
 
 def _get_spherical_lidx(points, res_planar, layers=None):
-
     if layers is None:
         # if we do not have information on layers we retrieve it
-        layers = retrieve_layers(points[:,:3])
+        layers = retrieve_layers(points[:, :3])
 
     # number of columns in the image
-    img_width = np.ceil(np.pi* res_planar).astype(int)
+    img_width = np.ceil(np.pi * res_planar).astype(int)
 
     # x coordinates
     x = points[:, 0]
     # y coordinates
     y = points[:, 1]
     # we need to invert orientation of y coordinates
-    planar = np.arctan2(-y, x) + np.pi/2
+    planar = np.arctan2(-y, x) + np.pi / 2
     # x_img_mapping <--> J
     x_img_mapping = np.floor(planar * res_planar).astype(int)
     # y_img_mapping <--> I
@@ -636,19 +720,19 @@ def project_features(features, lidx, img_shape, aggregate_func='mean'):
     # auxiliary vector to compute binned_count
     count_input = np.ones_like(features[:, 0])
 
-    binned_count = np.bincount(lidx, count_input, minlength=nr*nc)
+    binned_count = np.bincount(lidx, count_input, minlength=nr * nc)
 
     # initialize binned_feature map
-    binned_features = np.zeros((nr*nc, features.shape[1]))
+    binned_features = np.zeros((nr * nc, features.shape[1]))
 
     # summing features
     for i in range(features.shape[1]):
-        binned_features[:, i] = np.bincount(lidx, features[:, i], minlength=nr*nc)
+        binned_features[:, i] = np.bincount(lidx, features[:, i], minlength=nr * nc)
         # TODO: add other aggregation functions
         if aggregate_func == 'mean':
             # for each cell we compute mean value of the features in cell
             binned_features[:, i] = np.divide(binned_features[:, i], binned_count, out=np.zeros_like(binned_count),
-                                             where=binned_count!=0.0)
+                                              where=binned_count != 0.0)
 
     # reshape binned_features to feature map
     binned_feature_map = binned_features.reshape((nr, nc, features.shape[1]))
@@ -791,6 +875,7 @@ Return sub sampled point cloud
     new_points = np.c_[points, layers]
     # sampling only points with even id
     return new_points[layers % sub_ratio == 0]
+
 
 def get_rgb(points, img, calib):
     '''

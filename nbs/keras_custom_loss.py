@@ -7,10 +7,57 @@ import numpy as np
 import pdb
 
 smooth = 1.0
+# Sources : 
+# dice_coef and dice_coef_loss have been borrowed from:
+# https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
+# Focal loss keras : https://github.com/aldi-dimara/keras-focal-loss/blob/master/focal_loss.py
+# https://lars76.github.io/neural-networks/object-detection/losses-for-segmentation/
 
-#  dice_coef and dice_coef_loss have been borrowed from:
-#  https://github.com/jocicmarko/ultrasound-nerve-segmentation/blob/master/train.py
-# Focal loss keras : https://github.com/umbertogriffo/focal-loss-keras/blob/master/losses.py
+def binary_focal_loss(gamma=2.0, alpha=0.75):
+    """
+    Implementation of Focal Loss from the paper in multiclass classification
+    Formula:
+        loss = -alpha_t*((1-p_t)^gamma)*log(p_t)
+        
+        p_t = y_pred, if y_true = 1
+        p_t = 1-y_pred, otherwise
+        
+        alpha_t = alpha, if y_true=1
+        alpha_t = 1-alpha, otherwise
+        
+        cross_entropy = -log(p_t)
+    Parameters:
+        alpha -- the same as wighting factor in balanced cross entropy
+        gamma -- focusing parameter for modulating factor (1-p)
+    Default value:
+        gamma -- 2.0 as mentioned in the paper
+        alpha -- 0.25 as mentioned in the paper
+    """
+    def focal_loss(y_true, y_pred):
+        # Define epsilon so that the backpropagation will not result in NaN
+        # for 0 divisor case
+        epsilon = K.epsilon()
+        # Add the epsilon to prediction value
+        #y_pred = y_pred + epsilon
+        # Clip the prediciton value
+        y_pred = K.clip(y_pred, epsilon, 1.0-epsilon)
+        # Calculate p_t
+        p_t = tf.where(K.equal(y_true, 1), y_pred, 1-y_pred)
+        # Calculate alpha_t
+        alpha_factor = K.ones_like(y_true)*alpha
+        alpha_t = tf.where(K.equal(y_true, 1), alpha_factor, 1-alpha_factor)
+        # Calculate cross entropy
+        cross_entropy = -K.log(p_t)
+        weight = alpha_t * K.pow((1-p_t), gamma)
+        # Calculate focal loss
+        loss = weight * cross_entropy
+        # Sum the losses in mini_batch
+        loss = K.sum(loss, axis=1)
+        return loss
+    
+    return focal_loss
+
+
 def generalize_IoU(y_true, y_pred):
     """ 
     Generalized IoU : https://giou.stanford.edu/#method
@@ -27,80 +74,6 @@ def generalize_IoU(y_true, y_pred):
     #TODO : add convex envolope of y_true, y_pred for each class
     #Tensorflow implementations
     return (intersection) / (union)
-
-def binary_focal_loss(gamma=2., alpha=.25):
-    """
-    Binary form of focal loss.
-      FL(p_t) = -alpha * (1 - p_t)**gamma * log(p_t)
-      where p = sigmoid(x), p_t = p or 1 - p depending on if the label is 1 or 0, respectively.
-    References:
-        https://arxiv.org/pdf/1708.02002.pdf
-    Usage:
-     model.compile(loss=[binary_focal_loss(alpha=.25, gamma=2)], metrics=["accuracy"], optimizer=adam)
-    """
-    def binary_focal_loss_fixed(y_true, y_pred):
-        """
-        :param y_true: A tensor of the same shape as `y_pred`
-        :param y_pred:  A tensor resulting from a sigmoid
-        :return: Output tensor.
-        """
-        pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
-        pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
-
-        epsilon = K.epsilon()
-        # clip to prevent NaN's and Inf's
-        pt_1 = K.clip(pt_1, epsilon, 1. - epsilon)
-        pt_0 = K.clip(pt_0, epsilon, 1. - epsilon)
-
-        return -K.sum(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1)) \
-               -K.sum((1 - alpha) * K.pow(pt_0, gamma) * K.log(1. - pt_0))
-
-    return binary_focal_loss_fixed
-
-
-def categorical_focal_loss(gamma=2., alpha=.25):
-    """
-    Softmax version of focal loss.
-           m
-      FL = ∑  -alpha * (1 - p_o,c)^gamma * y_o,c * log(p_o,c)
-          c=1
-      where m = number of classes, c = class and o = observation
-    Parameters:
-      alpha -- the same as weighing factor in balanced cross entropy
-      gamma -- focusing parameter for modulating factor (1-p)
-    Default value:
-      gamma -- 2.0 as mentioned in the paper
-      alpha -- 0.25 as mentioned in the paper
-    References:
-        Official paper: https://arxiv.org/pdf/1708.02002.pdf
-        https://www.tensorflow.org/api_docs/python/tf/keras/backend/categorical_crossentropy
-    Usage:
-     model.compile(loss=[categorical_focal_loss(alpha=.25, gamma=2)], metrics=["accuracy"], optimizer=adam)
-    """
-    def categorical_focal_loss_fixed(y_true, y_pred):
-        """
-        :param y_true: A tensor of the same shape as `y_pred`
-        :param y_pred: A tensor resulting from a softmax
-        :return: Output tensor.
-        """
-
-        # Scale predictions so that the class probas of each sample sum to 1
-        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
-
-        # Clip the prediction value to prevent NaN's and Inf's
-        epsilon = K.epsilon()
-        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
-
-        # Calculate Cross Entropy
-        cross_entropy = -y_true * K.log(y_pred)
-
-        # Calculate Focal Loss
-        loss = alpha * K.pow(1 - y_pred, gamma) * cross_entropy
-
-        # Sum the losses in mini_batch
-        return K.sum(loss, axis=1)
-
-    return categorical_focal_loss_fixed
 
 def dice1_coef(y_true, y_pred):
     y_true_f = K.flatten(y_true)
@@ -292,3 +265,18 @@ class DistanceJaccard2:
     def __call__(self, y_true, y_pred):
         return distance_jaccard2_loss(y_true, y_pred, self.__t__, self.__s__, self.__m__)
 
+def weighted_cross_entropy(beta):
+  def convert_to_logits(y_pred):
+      # see https://github.com/tensorflow/tensorflow/blob/r1.10/tensorflow/python/keras/backend.py#L3525
+      y_pred = tf.clip_by_value(y_pred, tf.keras.backend.epsilon(), 1 - tf.keras.backend.epsilon())
+
+      return tf.log(y_pred / (1 - y_pred))
+
+  def loss(y_true, y_pred):
+    y_pred = convert_to_logits(y_pred)
+    loss = tf.nn.weighted_cross_entropy_with_logits(logits=y_pred, targets=y_true, pos_weight=beta)
+
+    # or reduce_sum and/or axis=-1
+    return tf.reduce_mean(loss)
+
+  return loss

@@ -3,10 +3,11 @@ import argparse
 import numpy as np
 from glob import glob
 from PIL import Image
-from .calibration import Calibration, get_lidar_in_image_fov
-from .data_loaders import load_bin_file, get_image, get_dataset
 from skimage.morphology import closing, opening, rectangle, square
-
+# local imports
+from . import calibration
+from . import data_loaders as dls
+from tqdm import tqdm
 
 def retrieve_layers(points):
     '''
@@ -48,6 +49,7 @@ def retrieve_layers(points):
 
     return layers
 
+
 def project_points_on_camera_img(points, img, calib):
     """
     Function that  project point cloud on fron view image and retrieve RGB information
@@ -68,8 +70,8 @@ def project_points_on_camera_img(points, img, calib):
     """
     height, width = img.shape[:2]
 
-    imgfov_pc_velo, pts_2d, fov_inds = get_lidar_in_image_fov(points, calib, 0, 0, width, height,
-                                                              return_more=True)
+    imgfov_pc_velo, pts_2d, fov_inds = calibration.get_lidar_in_image_fov(points, calib, 0, 0, width, height,
+                                                                          return_more=True)
 
     # the following array contains for each point in the point cloud the corrisponding pixel of the gt_img
     velo_to_pxls = np.floor(pts_2d[fov_inds, :]).astype(int)
@@ -176,6 +178,7 @@ def generate_point_cloud_gt(points, gt_img, calib):
 
     return np.c_[points, labels]
 
+
 def project_gt_bev(points, label_idx=-1):
     """
     This projection does not gives us the same results as the one in LoDNN
@@ -193,11 +196,11 @@ def project_gt_bev(points, label_idx=-1):
     gt_img: Image
         ground truth image
     """
-    points_to_bev_pxls = project_on_bev_img(points[:,:3])
+    points_to_bev_pxls = project_on_bev_img(points[:, :3])
     gt_img = np.zeros((400, 200, 3), dtype=np.uint8)
-    gt_img[:,:,0] = 255
+    gt_img[:, :, 0] = 255
     print(points_to_bev_pxls.max(0), points_to_bev_pxls.min(0))
-    label = points[:,label_idx]
+    label = points[:, label_idx]
     for n in range(len(points)):
         if in_img_frame(points_to_bev_pxls[n], (400, 200)):
             gt_img[points_to_bev_pxls[n, 0], points_to_bev_pxls[n, 1], 2] = 255 * label[n]
@@ -207,7 +210,7 @@ def project_gt_bev(points, label_idx=-1):
     return gt_img
 
 
-def project_gt_to_front(points, label_idx = -1):
+def project_gt_to_front(points, label_idx=-1):
     """
     Function that project gt to front (i.e. spherical) view image
 
@@ -224,14 +227,13 @@ def project_gt_to_front(points, label_idx = -1):
         ground truth spherical image
     """
 
-
     # todo: parametrize the following variables
     img_height = 64
     res_planar = 300
     img_width = np.ceil(np.pi * res_planar).astype(int)
     # initialize gt_img
     gt_img = np.zeros((img_height, img_width, 3), dtype=np.uint8)
-    gt_img[:,:,0] = 255
+    gt_img[:, :, 0] = 255
     # get points coordinates
     x = points[:, 0]
     y = points[:, 1]
@@ -242,7 +244,7 @@ def project_gt_to_front(points, label_idx = -1):
     # get pixel coordinates for each point in the cloud
     i = retrieve_layers(points)
     assert i.max() == 63
-    j = np.floor( planar_angles * res_planar).astype(int)
+    j = np.floor(planar_angles * res_planar).astype(int)
 
     idx = np.logical_and((planar_angles >= 0), (planar_angles < np.pi))
 
@@ -250,9 +252,9 @@ def project_gt_to_front(points, label_idx = -1):
         if idx[n]:
             gt_img[i[n], j[n], 2] = 255 * labels[n].astype(np.uint8)
 
-    cl_gt_img_2 = closing(gt_img[:,:,2], square(3))
+    cl_gt_img_2 = closing(gt_img[:, :, 2], square(3))
     cl_gt_img = gt_img.copy()
-    cl_gt_img[:,:,2] = cl_gt_img_2
+    cl_gt_img[:, :, 2] = cl_gt_img_2
 
     gt_img = Image.fromarray(cl_gt_img.astype(np.uint8))
 
@@ -268,7 +270,7 @@ def generate_kitti_gt(path):
     path: str
         path to database root
     """
-    train_set, valid_set, test_set = get_dataset(path, is_training=True)
+    train_set, valid_set, test_set = dls.get_dataset(path, is_training=True)
 
     # joining all the lists together
     pc_fileslist = train_set['pc'] + valid_set['pc'] + test_set['pc']
@@ -292,18 +294,19 @@ def generate_kitti_gt(path):
                                                              gt_bev_fileslist,
                                                              calib_fileslist):
         # loading data from file
-        pc = load_bin_file(pc_path)
-        gt_img = get_image(gt_img_path, is_color=True, rgb=False)
-        calib = Calibration(calib_path)
+        pc = dls.load_bin_file(pc_path)
+        gt_img = dls.get_image(gt_img_path, is_color=True, rgb=False)
+        c = calibration.Calibration(calib_path)
         # retrieving labels for point clouds
-        points = generate_point_cloud_gt(pc, gt_img, calib)
+        points = generate_point_cloud_gt(pc, gt_img, c)
         filename = pc_path.split('/')[-1]
         print(os.path.join(pc_new_dir, filename))
         points.astype(np.float32).tofile(os.path.join(pc_new_dir, filename))
         gt_front_img = project_gt_to_front(points, label_idx=-1)
         gt_front_img.save(os.path.join(gt_front_new_dir, gt_bev_path.split('/')[-1]))
 
-def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, start_idx = 0):
+
+def generate_semantic_kitti_gt(path, sequences=None, view='front', classes=None, start_idx=0):
     """
     Function that generate the gt view
 
@@ -333,6 +336,7 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
 
     gt_dirname = 'gt_front' if view == 'front' else 'gt_bev'
 
+    
     for s in sequences:
         pc_files = sorted(glob(os.path.join(basedir, s, 'velodyne') + '/*.bin'))
         label_files = sorted(glob(os.path.join(basedir, s, 'labels') + '/*.label'))
@@ -340,8 +344,8 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
         assert len(pc_files) == len(label_files)
 
         os.makedirs(os.path.join(basedir, s, gt_dirname), exist_ok=True)
-        for pcf, lf in zip(pc_files[start_idx:], label_files[start_idx:]):
-            print("Processing file: ", pcf.split('/')[-1].split('.')[0])
+        for pcf, lf in tqdm(zip(pc_files[start_idx:], label_files[start_idx:])):
+            #print("Processing file: ", pcf.split('/')[-1].split('.')[0])
             pc = np.fromfile(pcf, dtype=np.float32).reshape(-1, 4)
             labels = np.fromfile(lf, dtype=np.uint32).reshape((-1))
             labels = labels & 0xFFFF
@@ -351,10 +355,12 @@ def generate_semantic_kitti_gt(path, sequences=None, view='bev', classes=None, s
                 gt_img = project_gt_to_front(np.c_[pc, labels_to_proj])
                 gt_img.save(os.path.join(basedir, s, gt_dirname, pcf.split('/')[-1].split('.')[0] + '.png'))
 
-            elif view=='bev':
+            elif view == 'bev':
+                print('semantic kitti will not be evaluated in BEV')
                 pass
                 # retrieve layers from point cloud
                 # gt_img = project_gt_bev(np.c_[pc, labels_to_proj])
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("./generate_gt.py")
@@ -395,7 +401,7 @@ if __name__ == "__main__":
 
     elif args.dataset.lower() == 'semantickitti':
         generate_semantic_kitti_gt(os.path.join(os.path.abspath(PATH), 'dataset', 'SemanticKITTI', 'dataset'),
-                                   sequences=['05','08'],
+                                   sequences=['00', '01', '05', '08'],
                                    view=args.view,
                                    start_idx=int(args.start)
                                    )

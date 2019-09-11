@@ -16,17 +16,24 @@ from keras import backend as k
 from keras.optimizers import *
 from keras_custom_loss import jaccard2_loss
 
+def remove_bg(gt_train):
+    gt_train = gt_train[:,:,:,0]
+    gt_train = gt_train[:,:,:,np.newaxis]
+    return gt_train
 
 def load_dataset(add_geometrical_features=True,
                  subsample_flag=True,
                  compute_HOG=False,
                  compute_eigen=0,
                  view='bev',
+                 dataset='kitti',
                  subsample_ratio=1):
 
     PATH = '../'  # path of the repo.
     _NAME = 'experiment0'  # name of experiment
-
+    sequences = None
+    if dataset != 'kitti':
+        sequences =['04', '08']
     # create dataclass
     KPC = utils.KittiPointCloudClass(dataset_path=PATH,
                                      add_geometrical_features=add_geometrical_features,
@@ -34,10 +41,12 @@ def load_dataset(add_geometrical_features=True,
                                      compute_HOG=compute_HOG,
                                      eigen_neighbors=compute_eigen,
                                      view=view,
-                                     subsample_ratio=subsample_ratio)
+                                     subsample_ratio=subsample_ratio,
+                                     dataset=dataset,
+                                     sequences=sequences)
 
-    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset(limit_index=-1)
-
+    f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset()
+    gt_test = remove_bg(gt_test)
     return f_test, gt_test
 
 
@@ -126,12 +135,12 @@ def predict_test_set(model, f_test):
     return all_pred, all_times
 
 
-def compute_scores(pred, gt):
+def compute_scores(pred, gt, threshold=0.5):
 
     gt_all = gt[:,:,:,0].flatten()
-    argmax_pred = 1 - np.argmax(pred, axis=3)
-    argmax_pred = argmax_pred.flatten()
-    # f1, recall, precision, acc, jaccard = utils.get_metrics(gt=gt_all, pred=argmax_pred)
+    # argmax_pred = 1 - np.argmax(pred, axis=3)
+    # argmax_pred = argmax_pred.flatten()
+    argmax_pred = (pred > threshold).flatten()
     acc = accuracy_score(gt_all, argmax_pred)
     recall = recall_score(gt_all, argmax_pred)
     precision = precision_score(gt_all, argmax_pred)
@@ -157,7 +166,7 @@ def compute_scores(pred, gt):
     return scores
 
 
-def evaluate_model(model_name, weights, view, plot_result_flag):
+def evaluate_model(model_name, weights, view, plot_result_flag, dataset):
     # getting dir
     weights_dir = os.path.abspath(os.path.dirname(weights))
 
@@ -173,7 +182,8 @@ def evaluate_model(model_name, weights, view, plot_result_flag):
                                    compute_HOG=hog,
                                    compute_eigen=eigen,
                                    view=view,
-                                   subsample_ratio=subsample_ratio)
+                                   subsample_ratio=subsample_ratio,
+                                   dataset=dataset)
 
     print("Test set shape {}".format(f_test.shape))
     print("GT set shape {}".format(gt_test.shape))
@@ -236,6 +246,8 @@ if __name__ == "__main__":
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
     parser.add_argument('--plot_result_flag', default=False, help='flag to show images of road segmentation')
     parser.add_argument('--view', type=str, default='bev', help='projection to use')
+    parser.add_argument('--dataset', default='kitti', type=str, help='Dataset to use for training')
+
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
@@ -252,4 +264,4 @@ if __name__ == "__main__":
     k.tensorflow_backend.set_session(tf.Session(config=config))
     run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
-    evaluate_model(args.model, args.model_weights, args.view, args.plot_result_flag)
+    evaluate_model(args.model, args.model_weights, args.view, args.plot_result_flag, args.dataset)
