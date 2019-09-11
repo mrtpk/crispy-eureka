@@ -14,7 +14,7 @@ from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from keras import backend as k
 from keras_custom_loss import binary_focal_loss  # weightedLoss2
-import helpers.generate_gt as generate_gt
+# import helpers.generate_gt as generate_gt
 # cyclic lr
 import keras_contrib
 
@@ -38,8 +38,8 @@ def test_all(model_name, view, dataset, sequences=None):
     all_results = {}
     test_name = {}
     prefix = 'Classical_'
-    for add_geometrical_features, g in zip([True, False], ['Geometric_', '']):
-        for subsample_ratio, s in zip([1, 2, 4], ['', 'Subsampled_32', 'Subsampled_16']):
+    for subsample_ratio, s in zip([1, 2, 4], ['', 'Subsampled_32', 'Subsampled_16']):
+        for add_geometrical_features, g in zip([False, True], ['', 'Geometric_']):
             for compute_HOG, h in zip([False], ['']):  # change one of them to true when testing all
                 subsample_flag = True if subsample_ratio % 2 == 0 else False
                 key = (add_geometrical_features, subsample_flag, compute_HOG)
@@ -265,36 +265,39 @@ def test_road_segmentation(model_name,
               "run_id": run_id,
               "dataset": "KITTI",
               "training_config": training_config,
+              "z_min": str(KPC.z_min),
+              "z_max": str(KPC.z_max),
+              "COUNT_MAX": str(KPC.COUNT_MAX)
               }
     with open('{}/details.json'.format(path), 'w') as f:
         json.dump(result, f)
     return result
 
-
-def write_front_view_GT(dataset='kitti'):
-    """
-    Ensure the ground truth for front view is written for KITTI-Road Seg
-    """
-    if dataset=='kitti':
-        root_path = '../'
-        if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-            print('Writing ground truth for front view')
-            generate_gt.generate_kitti_gt(os.path.abspath(root_path))
-
-    if dataset=='semantickitti':
-        root_path = '../dataset/SemanticKITTI/dataset/'
-        if not os.path.exists('../dataset/SemanticKITTI/dataset/training/'):
-            print('Writing ground truth for front view')
-            generate_gt.generate_semantic_kitti_gt(os.path.abspath(root_path))
-
-    return
+#
+# def write_front_view_GT(dataset='kitti'):
+#     """
+#     Ensure the ground truth for front view is written for KITTI-Road Seg
+#     """
+#     if dataset=='kitti':
+#         root_path = '../'
+#         if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+#             print('Writing ground truth for front view')
+#             generate_gt.generate_kitti_gt(os.path.abspath(root_path))
+#
+#     if dataset=='semantickitti':
+#         root_path = '../dataset/SemanticKITTI/dataset/'
+#         if not os.path.exists('../dataset/SemanticKITTI/dataset/training/'):
+#             print('Writing ground truth for front view')
+#             generate_gt.generate_semantic_kitti_gt(os.path.abspath(root_path))
+#
+#     return
 
 if __name__ == "__main__":
     # ensure the front view ground truth exists
-    write_all_groundtruths = False #make this true to write all ground truths
-    if write_all_groundtruths:
-        write_front_view_GT(dataset='kitti')
-        # write_front_view_GT(dataset='semantickitti')
+    # write_all_groundtruths = False #make this true to write all ground truths
+    # if write_all_groundtruths:
+    #     write_front_view_GT(dataset='kitti')
+    #     # write_front_view_GT(dataset='semantickitti')
 
     # test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
