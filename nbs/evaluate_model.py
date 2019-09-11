@@ -7,7 +7,7 @@ import utils
 import dl_models
 from helpers.timer import timer
 from helpers.viz import plot_confusion_matrix, ConfusionMatrix
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, precision_recall_curve, average_precision_score
 from sklearn.metrics import accuracy_score, jaccard_score, recall_score, precision_score, f1_score
 import keras # this is required
 from keras.preprocessing.image import ImageDataGenerator
@@ -15,6 +15,103 @@ import tensorflow as tf
 from keras import backend as k
 from keras.optimizers import *
 from keras_custom_loss import jaccard2_loss
+
+
+class Experiment:
+    def __init__(self, weights, model_name='unet', view='front', plot_result_flag=False, dataset='semantickitti'):
+        self.input = dict(
+            model_name=model_name,
+            weights=weights,
+            view=view,
+            plot_result_flag=plot_result_flag,
+            dataset=dataset)
+
+        weights_dir = os.path.abspath(os.path.dirname(weights))
+        weights_par_dir = os.path.abspath(os.path.join(weights_dir, os.pardir))
+        self.test_name = self.__get_test_name(os.path.join(weights_par_dir, 'details.json'))
+
+    def __get_test_name(self, filename):
+        with open(filename) as f:
+            d = json.load(f)
+
+        return d['test_name']
+
+    def run_pred(self):
+        output = evaluate_model(**self.input)
+        for k in output.keys():
+            setattr(self, k, output[k])
+
+    def save_predictions(self, ids):
+        for i in ids:
+            self.plot_prediction(i, save_fig=True)
+
+    def plot_prediction(self, n=-1, save_fig=False):
+        if n < 0:
+            n = np.random.randint(len(self.gt_test))
+        print(n)
+
+        plt.style.use('classic')
+        f, ax = plt.subplots(3, 1, figsize=(20, 7))
+        ax[0].imshow(self.gt_test[n, :, :, 0])
+        ax[0].set_title('Ground Truth {:04}'.format(n))
+        ax[0].axis('off')
+        ax[1].imshow(self.pred[n, :, :, 0])
+        ax[1].set_title('Road class heatmap {:04}'.format(n))
+        ax[1].axis('off')
+        threshold = 0.5
+        ax[2].imshow((self.pred[n] > threshold)[:, :, 0])
+        ax[2].set_title('Prediction {:04} with threshold={}'.format(n, threshold))
+        ax[2].axis('off')
+        if save_fig:
+            plt.tight_layout()
+            plt.savefig('pred/pred_{}{:04}.png'.format(self.test_name, n), dpi=90)
+
+        plt.show()
+
+    def plot_features_map(self, n):
+        nr, nc, nz = self.f_test.shape
+        if nz == 6:
+            _, ax = plt.subplots(6, 1)
+        elif nz > 6:
+            _, ax = plt.subplots(7, 1)
+        ax[0].imshow(self.f_test[:, :, 0], alpha=0.9)
+        ax[0].set_title('Mean Count')
+        ax[1].imshow(self.f_test[:, :, 1], alpha=0.9)
+        ax[1].set_title('Mean Reflectance')
+        ax[2].imshow(self.f_test[:, :, 2], alpha=0.9)
+        ax[2].set_title('Max Elevation')
+        ax[3].imshow(self.f_test[:, :, 3], alpha=0.9)
+        ax[3].set_title('Min Elevation')
+        ax[4].imshow(self.f_test[:, :, 4], alpha=0.9)
+        ax[4].set_title('Mean Elevation')
+        ax[5].imshow(self.f_test[:, :, 5], alpha=0.9)
+        ax[5].set_title('Std Elevation')
+        if nz > 6:
+            ax[6].imshow(self.f_test[:, :, 6:], alpha=0.9)
+            ax[6].set_title('Mean Normals')
+        plt.show()
+
+    def precision_recall_curve(self, return_f1=False):
+        gt_flatten = self.gt_test[:, :, :, 0].flatten()
+        pred_flatten = self.pred[:, :, :, 0].flatten()
+        prec, rec, thresholds = precision_recall_curve(gt_flatten, pred_flatten)
+        f1_scores = (2 * (prec*rec)/ (prec + rec))
+        best_f1 = f1_scores.max()
+        imax = f1_scores.argmax()
+        print("Scores test {}: Best F1: {}, Rec: {}, Prec: {}, threshold: {}".format(self.test_name, best_f1, rec[imax],
+                                                                                     prec[imax], thresholds[imax]))
+        if return_f1:
+            return prec, rec, best_f1
+
+        return prec, rec
+
+    def average_precision_score(self):
+        gt_flatten = self.gt_test[:, :, :, 0].flatten()
+        pred_flatten = self.pred[:, :, :, 0].flatten()
+        score = average_precision_score(gt_flatten, pred_flatten)
+
+        return score
+
 
 def remove_bg(gt_train):
     gt_train = gt_train[:,:,:,0]
@@ -32,7 +129,7 @@ def load_dataset(add_geometrical_features=True,
     _NAME = 'experiment0'  # name of experiment
     sequences = None
     if dataset != 'kitti':
-        sequences =['04', '08']
+        sequences =['03','04', '08']
     # create dataclass
     KPC = utils.KittiPointCloudClass(dataset_path=PATH,
                                      add_geometrical_features=add_geometrical_features,
@@ -228,8 +325,14 @@ def evaluate_model(model_name, weights, view, plot_result_flag, dataset):
     conf_mat.confusion_matrix = cm
     print("Overall Accuracy: {}".format(conf_mat.get_overall_accuracy()))
     print("IoU: {}".format(conf_mat.get_average_intersection_union()))
-
-    return f_test, gt_test, model, scores, pred, times, conf_mat
+    out = dict(f_test=f_test,
+             gt_test=gt_test,
+             model=model,
+             scores=scores,
+             pred=pred,
+             times=times,
+             conf_mat=conf_mat)
+    return out
 
 
 if __name__ == "__main__":
