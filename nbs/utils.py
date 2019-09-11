@@ -16,6 +16,9 @@ import keras
 from keras.callbacks import TensorBoard, EarlyStopping
 from tqdm import tqdm
 
+from pyntcloud import PyntCloud
+import pandas as pd
+
 
 # memory cache now pre-evalutes get_feature functions.
 # Attention if you change the code make sure you empty the cachefolder to re-evalaute these features.
@@ -112,6 +115,7 @@ class KittiPointCloudClass:
                  add_geometrical_features,
                  subsample,
                  compute_HOG,
+                 eigen_neighbors,
                  view,
                  subsample_ratio=1,
                  dataset='kitti',
@@ -127,6 +131,8 @@ class KittiPointCloudClass:
         self.add_geometrical_features = add_geometrical_features  # Flag
         self.subsample = subsample  # Flag
         self.compute_HOG = compute_HOG  # Flag
+        self.compute_eigen = eigen_neighbors > 0 # Flag
+        self.kneighbors = eigen_neighbors
         self.view = view
         if dataset != 'kitti' and view!='bev':
             self.side_range = (-100, 100)
@@ -384,6 +390,13 @@ class KittiPointCloudClass:
 
             out_feature_map = np.dstack([out_feature_map, normals_feature_map])
 
+        if self.compute_eigen:
+            # calculate eigen properties and put it in an numpy array
+            eigen_features = self.get_eigen_features(points)
+            # project them into specified view
+            eigen_feature_map = project_features(eigen_features, lidx, (self.img_height, self.img_width))
+            out_feature_map = np.dstack([out_feature_map, eigen_feature_map])
+
         if self.compute_HOG:
             # extract hog features from camera image
             hog_features = get_hog(points[:, :3], img, calib)
@@ -395,6 +408,31 @@ class KittiPointCloudClass:
         # cell count normalization
         out_feature_map[:, :, 0] = out_feature_map[:, :, 0] / self.COUNT_MAX
         return out_feature_map
+    
+    def get_eigen_features(self, points):
+        '''
+        Using pyntcloud library calculates various eigen properties.
+        '''
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+        r = points[:, 3]
+
+        # convert it into Pandas df 
+        pc = PyntCloud(pd.DataFrame({'x': x, 'y': y, 'z': z, 'r': r}))
+        k_neighbors = pc.get_neighbors(k=self.kneighbors)
+        eigenvalues = pc.add_scalar_field("eigen_values", k_neighbors=k_neighbors)
+        # anisotropy = pc.add_scalar_field("anisotropy", ev=eigenvalues)
+        curvature = pc.add_scalar_field("curvature", ev=eigenvalues)
+        eigenentropy = pc.add_scalar_field("eigenentropy", ev=eigenvalues)
+        # eigensum = pc.add_scalar_field("eigen_sum", ev=eigenvalues)
+        linearity = pc.add_scalar_field("linearity", ev=eigenvalues)
+        omnivariance = pc.add_scalar_field("omnivariance", ev=eigenvalues)
+        planarity = pc.add_scalar_field("planarity", ev=eigenvalues)
+        sphericity = pc.add_scalar_field("sphericity", ev=eigenvalues)
+
+        eigen_features = pc.points.as_matrix(columns = pc.points.columns[7:])
+        return eigen_features
 
     def get_classical_features(self, points, side_range, fwd_range, res, layers):
         # calculate the image dimensions

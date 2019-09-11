@@ -121,6 +121,7 @@ def remove_bg(gt_train):
 def load_dataset(add_geometrical_features=True,
                  subsample_flag=True,
                  compute_HOG=False,
+                 compute_eigen=0,
                  view='bev',
                  dataset='kitti',
                  subsample_ratio=1):
@@ -135,6 +136,7 @@ def load_dataset(add_geometrical_features=True,
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG,
+                                     eigen_neighbors=compute_eigen,
                                      view=view,
                                      subsample_ratio=subsample_ratio,
                                      dataset=dataset,
@@ -171,9 +173,13 @@ def get_info_from_test_name(filename):
             sampled_ratio = 2
         if '16' in test_name:
             sampled_ratio = 4
+    
+    if 'eigen' in test_name:
+        eigen = 100 # TODO: take it from config file
+
     print(d)
 
-    return geometric, hog, sampled, sampled_ratio, d['training_config']
+    return geometric, hog, sampled, sampled_ratio, eigen, d['training_config']
 
 
 def initialize_model(model_name, weights, training_config, shape, subsample_ratio=1):
@@ -265,12 +271,13 @@ def evaluate_model(model_name, weights, view, plot_result_flag, dataset):
     weights_par_dir = os.path.abspath(os.path.join(weights_dir, os.pardir))
 
     # retrieve basic info on trained model
-    geometric, hog, sampled, subsample_ratio, training_config = get_info_from_test_name(os.path.join(weights_par_dir, 'details.json'))
+    geometric, hog, sampled, subsample_ratio, eigen, training_config = get_info_from_test_name(os.path.join(weights_par_dir, 'details.json'))
     print(training_config)
 
     f_test, gt_test = load_dataset(add_geometrical_features=geometric,
                                    subsample_flag=sampled,
                                    compute_HOG=hog,
+                                   compute_eigen=eigen,
                                    view=view,
                                    subsample_ratio=subsample_ratio,
                                    dataset=dataset)

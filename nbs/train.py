@@ -38,29 +38,34 @@ def test_all(model_name, view, dataset, sequences=None):
     all_results = {}
     test_name = {}
     prefix = 'Classical_'
+
     for subsample_ratio, s in zip([1, 2, 4], ['', 'Subsampled_32', 'Subsampled_16']):
         for add_geometrical_features, g in zip([False, True], ['', 'Geometric_']):
             for compute_HOG, h in zip([False], ['']):  # change one of them to true when testing all
-                subsample_flag = True if subsample_ratio % 2 == 0 else False
-                key = (add_geometrical_features, subsample_flag, compute_HOG)
-                test_name[key] = prefix + g + s + h
-                print(test_name[key])
-                all_results[key] = test_road_segmentation(model_name,
-                                                          add_geometrical_features=add_geometrical_features,
-                                                          subsample_flag=subsample_flag,
-                                                          compute_HOG=compute_HOG,
-                                                          view=view,
-                                                          subsample_ratio=subsample_ratio,
-                                                          test_name=test_name[key],
-                                                          dataset=dataset,
-                                                          sequences=sequences)
+                for compute_eigen, e in zip([100, 0], ['Eigen_', '']): #training for 100 kneighbors
+                    subsample_flag = True if subsample_ratio % 2 == 0 else False
+                    key = (add_geometrical_features, subsample_flag, compute_HOG, compute_eigen)
+                    test_name[key] = prefix+g+s+h+e
+                    print(test_name[key])
+                    all_results[key] = test_road_segmentation(model_name,
+                                                            add_geometrical_features=add_geometrical_features,
+                                                            subsample_flag=subsample_flag,
+                                                            compute_HOG=compute_HOG,
+                                                            compute_eigen = compute_eigen,
+                                                            view=view,
+                                                            subsample_ratio=subsample_ratio,
+                                                            test_name=test_name[key],
+                                                            dataset=dataset,
+                                                            sequences=sequences)
+
     return all_results
 
 
 def get_KPC_setup(model_name,
-                  add_geometrical_features=True,
-                  subsample_flag=True,
-                  compute_HOG=False,
+                  add_geometrical_features = True,
+                  subsample_flag = True,
+                  compute_HOG = False,
+                  compute_eigen = 0,
                   view='bev',
                   subsample_ratio=1,
                   dataset='kitti',
@@ -81,6 +86,7 @@ def get_KPC_setup(model_name,
                                      add_geometrical_features=add_geometrical_features,
                                      subsample=subsample_flag,
                                      compute_HOG=compute_HOG,
+                                     eigen_neighbors=compute_eigen,
                                      view=view,
                                      subsample_ratio=subsample_ratio,
                                      dataset=dataset,
@@ -91,22 +97,26 @@ def get_KPC_setup(model_name,
         n_channels += 3
     if compute_HOG:
         n_channels += 6
+    if compute_eigen > 0:
+        n_channels += 6
 
     return _NAME, run_id, path, callbacks, KPC, n_channels
 
 
 def test_road_segmentation(model_name,
-                           add_geometrical_features=True,
-                           subsample_flag=True,
-                           compute_HOG=False,
+                           add_geometrical_features = True,
+                           subsample_flag = True,
+                           compute_HOG = False,
+                           compute_eigen = 0,
                            view='bev',
                            subsample_ratio=1,
                            test_name='Test_',
                            dataset='kitti',
                            sequences=None):
     _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name,
-                                                                    add_geometrical_features=add_geometrical_features,
-                                                                    subsample_flag=subsample_flag,
+                                                                    add_geometrical_features = add_geometrical_features,
+                                                                    subsample_flag = subsample_flag,
+                                                                    compute_eigen = compute_eigen,
                                                                     view=view,
                                                                     compute_HOG=compute_HOG,
                                                                     subsample_ratio=subsample_ratio,
