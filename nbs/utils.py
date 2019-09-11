@@ -405,12 +405,15 @@ class KittiPointCloudClass:
         z_lidar = points[:, 2]
         r_lidar = points[:, 3]
 
-        norm_z_lidar = z_lidar  # assumed that the z values are normalised
+        norm_z_lidar = z_lidar.copy() # assumed that the z values are normalised
 
         if self.view == 'bev':
             lidx, x_img_mapping, y_img_mapping = _get_lidx(points, side_range, fwd_range, res)
         else:
+            # we did not renormalized z in front view since right now because we need those values for normals
+            norm_z_lidar = (norm_z_lidar - self.z_min) / (self.z_max - self.z_min)
             lidx, x_img_mapping, y_img_mapping = _get_spherical_lidx(points, res, layers)
+
         # Feature extraction
         # count of points per grid
         count_input = np.ones_like(norm_z_lidar)
@@ -458,13 +461,23 @@ class KittiPointCloudClass:
         o_count = norm_binned_count.reshape(self.img_height, self.img_width)
         o_mean_reflectance = binned_mean_reflectance.reshape(self.img_height, self.img_width)
         o_std_elevation = binned_std_elevation.reshape(self.img_height, self.img_width)
+        if self.view=='bev':
+            out_feature_map = np.dstack([o_count,
+                                         o_mean_reflectance,
+                                         o_max_elevation,
+                                         o_min_elevation,
+                                         o_mean_elevation,
+                                         o_std_elevation])
+        else:
+            # rhos = np.linalg.norm(points[:,:3], axis=1)
+            # o_mean_dist = project_features(rhos, lidx, (self.img_height, self.img_width))
+            out_feature_map = np.dstack([o_count,
+                                         o_mean_reflectance,
+                                         o_max_elevation,
+                                         o_min_elevation,
+                                         o_mean_elevation,
+                                         o_std_elevation])
 
-        out_feature_map = np.dstack([o_count,
-                                     o_mean_reflectance,
-                                     o_max_elevation,
-                                     o_min_elevation,
-                                     o_mean_elevation,
-                                     o_std_elevation])
         return out_feature_map, lidx, binned_count
 
     def get_count_features(self, points):
