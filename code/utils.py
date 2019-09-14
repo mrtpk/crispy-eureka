@@ -869,20 +869,20 @@ def retrieve_layers(points):
 
 def subsample_pc(points, sub_ratio=2):
     '''
-Return sub sampled point cloud
+    Return sub sampled point cloud
 
     Parameters
     ----------
-    points: ndarray
-        input point cloud
+        points: ndarray
+            input point cloud
 
-    sub_ratio: int
-        ratio to use to subsample point cloud
+        sub_ratio: int
+            ratio to use to subsample point cloud
 
     Returns
     -------
-    points: ndarray
-        subsampled pointcloud
+        points: ndarray
+            subsampled pointcloud
     '''
     layers = retrieve_layers(points)
     new_points = np.c_[points, layers]
@@ -922,3 +922,19 @@ def get_rgb(points, img, calib):
     rgb[fov_inds] = back_rgb
 
     return rgb
+
+def write_front_view_GT(dataset='kitti'):
+    """
+    Ensure the ground truth for front view is written for KITTI-Road Seg
+    """
+    if dataset=='kitti':
+        root_path = '../'
+        if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
+            print('Writing ground truth for front view')
+            generate_gt.generate_kitti_gt(os.path.abspath(root_path))
+
+    if dataset=='semantickitti':
+        root_path = '../dataset/SemanticKITTI/dataset/'
+        if not os.path.exists('../dataset/SemanticKITTI/dataset/training/'):
+            print('Writing ground truth for front view')
+            generate_gt.generate_semantic_kitti_gt(os.path.abspath(root_path))

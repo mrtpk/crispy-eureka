@@ -1,30 +1,74 @@
-# crispy-eureka
+# crispy-eureka (new readme, please go through completely!)
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
 * ~~Currently submitted to [CVRSUAD ICCVW 2019](https://sites.google.com/view/cvrsuad/), decision : Refused~~
-* New Deadline : [ICCRA'20](https://www.ieee-ras.org/component/rseventspro/event/1145-icra-2020-call-for-papers-deadline), ** Sep. 15, 2019**
-* New Deadline : [ML4AD - NeurIPS](https://ml4ad.github.io/), Sep. 17 2019, decision: Notification of acceptance Oct. 1, 
+* ~~New Deadline : [ICCRA'20](https://www.ieee-ras.org/component/rseventspro/event/1145-icra-2020-call-for-papers-deadline), ** Sep. 15, 2019*~~
+* ~~New Deadline : [ML4AD - NeurIPS](https://ml4ad.github.io/), Sep. 17 2019, decision: Notification of acceptance Oct. 1, ~~
 
-# New Goals for Sep 10: 
-- Evaluate accuracy w & w/o subsampling in front view with SqueezeNet, Unet, and ChipNet
-- Evaluate better data-augmentation (noise, peturbations, adding closings, or hole closings with morphological filtering)
+# Current model architectures (Front View)
+- X is input domain size (WxHxK), S is binary segmentation 
+- X64 \in 64x1000, X32 \in 32x1000, X16 \in 16x1000
+## Method 1 : Predict in GT-64
+- Here each network maps the input domain to the full resolution ground truth
+- ```DNN 64 : X64 -> Enc64 -> z64 -> Dec64 -> S ```
+- ```DNN 32 : X32 -> Enc32 -> z32 -> Dec32 -> S``` 
+- ```DNN 16 : X16 -> Enc16 -> z16 -> Dec16 -> S``` 
+- Here latent space variables are different sizes, i.e z16 < z32 < z64 since the inputs X's are of different sizes
+- The quality of subsampling is confounded with the ground truth predicition quality
+## Method 2 : Input X is always upsampled to 64x1000 and then Predict in GT-64
+- ```DNN 64 : X64 -> Enc64 -> z64 -> Dec64 -> S ```
+- ```DNN 32 : X32 -> Up2 -> Enc32 -> z32 -> Dec32 -> S``` 
+- ```DNN 16 : X16 -> Up4 -> Enc16 -> z16 -> Dec16 -> S```
+- Here the latent space variables z64, z32, z16 are all the same sizes since the inputs are upsampled always to the same sizes
+- Upsamping can be fixed by using simple binary interpolation, or this can be a learnt layer, in which case seperating errors of reconstruction and classification/seg becomes a problem.
+- We could introduce an auxilliary loss for upsampling to ensure the upsampling remains correct.
+## Method 3 : Shared Multiscale FCN
+- ``` DNN 64 : X64 -> [Enc -> z64 -> Dec] -> S ```
+- ``` DNN 32 : X32 -> Up2 -> [Enc -> z64 -> Dec] -> S ```
+- ``` DNN 16 : X16 -> Up4 -> [Enc -> z64 -> Dec] -> S ```
+- The model [Enc -> z64 -> Dec] is shared across scales are we train the same network to perfor predictions at different levels of subsampling. We still have to ensure the upsampling loss is low.
+- An alternative would be to aggregate the features from each upsampled-subsampled scale into a multiscale context module as in FPN/LoDNN
+- Final architecture DNN   :
+X64 -> Enc64 -> z64   
+X32 -> Up2 -> Enc32 -> z32  
+X16 -> Up4 -> Enc16 -> z16  
+concat(z64, z32, z16)->Dec->S    
+- This architecture is very similar to the Feature Pyramid Network used in Semantic Segmentation in images [FPN](https://towardsdatascience.com/review-fpn-feature-pyramid-network-object-detection-262fc7482610) [PSPNet](https://towardsdatascience.com/review-pspnet-winner-in-ilsvrc-2016-semantic-segmentation-scene-parsing-e089e5df177d)
+- Pyramid Pooling Network Architecture:
+![](`https://miro.medium.com/max/1304/1*IxUlWP8RBtxNS1N6hyBAxA.png`)
+## Variational Loss
+- In method 2 and 3 since the latent space vectors are the same size, a KL-divergence loss can be introduce to ensure that the subsampled feature maps are embedded to the same neighbourhood.
+- This also provides a way to measure the likelihood of the input data samples/pointclouds.
+- KL(z32||z64), KL(z16||z64) for the either the independent models or shared models.
+## Multiscale decomposition of features
+- If we look at the features in Front view or BEV, after subsampling the feature maps such as z_min, z_max, z_mean are monotonically decreasing since at each subsampling step we remove points. 
+- This creates implies that z_min_64 will strict contain or equal to the z_min_32 and z_min_16 i.e. ```z_min_64 >= z_min_32 => z_min_64```
+- One can now perform a finer decomposition of this feature map by consider classical multiscale transformations such as the wavelet transform which provides maps at different scales.
+- This also demonstrates that the quality of the feature maps should consistently degrade, though the features extracted by the CNN for road segmentation might not the same as for reconstruction.
+# New Goals :
+- [ ] Understand why classical-64 is performing worse compared to classical 32
+- [ ]Add data-generator for flow_from_directory [tutorial](https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly)
+- Front view 
+	- [ ] with SqueezeNet, 
+	- [ ] with DarkNet ?
+- BEV
+	- [ ] with Unet ?
+- Evaluate better data-augmentation 
+	- Shadows by introducing objects
+- Other data-aug : noise, peturbations, adding closings, or hole closings with morphological filtering
 - Upload a few video outputs to demonstrate the output
+
+# Alternative datasets
 - Use Carla pointclouds generated using 64 layers, 32 layers, 16 layers, 8 layers(these are directly configurable in CARLA and would not require subsampling, though will be costly to store). The ground truth can be generated by mapping points into semantic segmentation ground truth provided by Carla.
-- Integrate semantic kitti database
 
-
-# Article corrections
-- Better explain the motivation and the contribution : Feature extraction to learn robust representations for sparse pointclouds to perform road segmentation
-- Better explain and show the advantages in using geometrical features : How does normal estimation help in localizing the road (Curbs, edges of the road)
-- Move to front view representation and show how subsampling could benefit computationally the prediction. (Front view ground truth should be measured in the highest resolution possible)
-- Compare results obtained with bev-view and front-view
 
 # Contributions : 
 - Geometrical features improve and dont degrage performance for road seg with subsampling
 - Spectral features dont degrade performance for road seg with subsampling
 - Evaluating the effect of density variation in classification of road segmentation
 - First benchmark on Semantic KITTI for road segmentation
+- Transfer learning to other datasets ? [Perform prediction and training on a dataset that is different from KITTI's sensor configuration ?]
 
-# Future goals (ICRA Deadline)
+# Future goals (Deadline to be fixed, CVPR ?)
 - Evaluate geometrical features (normal) performance (Leo)
 - Move to Semantic KITTI and evaluate performance on the road class (Leo/Ravi)
 - Work on Front view and evaluate performance with subsampling, models : u-net, squeezenet, lodnn (Leo/Ravi)
@@ -33,8 +77,8 @@
 - Handle Class imbalance (very few points corresponding to road)
 
 # Secondary goals if we have time
-- Improve 2d-grid feature extraction in BEV using kernel density estimate
+- **Density estimation** : Improve 2d-grid feature extraction in BEV using kernel density estimate
 	- Kernel Density Filtering for Noisy Point Clouds in One Step [pdf](http://www.csd.uwo.ca/faculty/beau/PAPERS/imvip-15.pdf)
-- Autoencoders to perform feature selection [Concrete Autoencoders](https://github.com/mfbalin/Concrete-Autoencoders)
-- Better Dataaugmentation to handle the density variation and shadows
+- **Feature Selection** Autoencoders to perform feature selection [Concrete Autoencoders](https://github.com/mfbalin/Concrete-Autoencoders)
+- **Data-augmentation** to handle the density variation and shadows
 

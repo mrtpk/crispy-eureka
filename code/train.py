@@ -17,7 +17,6 @@ from keras_custom_loss import binary_focal_loss  # weightedLoss2
 # import helpers.generate_gt as generate_gt
 # cyclic lr
 import keras_contrib
-
 # from helpers.sgdr import SGDRScheduler
 # from helpers.lr_finder import LRFinder, get_lr_for_model
 
@@ -283,32 +282,7 @@ def test_road_segmentation(model_name,
         json.dump(result, f)
     return result
 
-#
-# def write_front_view_GT(dataset='kitti'):
-#     """
-#     Ensure the ground truth for front view is written for KITTI-Road Seg
-#     """
-#     if dataset=='kitti':
-#         root_path = '../'
-#         if not os.path.exists('../dataset/KITTI/dataset/data_road_velodyne/training/gt_velodyne/'):
-#             print('Writing ground truth for front view')
-#             generate_gt.generate_kitti_gt(os.path.abspath(root_path))
-#
-#     if dataset=='semantickitti':
-#         root_path = '../dataset/SemanticKITTI/dataset/'
-#         if not os.path.exists('../dataset/SemanticKITTI/dataset/training/'):
-#             print('Writing ground truth for front view')
-#             generate_gt.generate_semantic_kitti_gt(os.path.abspath(root_path))
-#
-#     return
-
 if __name__ == "__main__":
-    # ensure the front view ground truth exists
-    # write_all_groundtruths = False #make this true to write all ground truths
-    # if write_all_groundtruths:
-    #     write_front_view_GT(dataset='kitti')
-    #     # write_front_view_GT(dataset='semantickitti')
-
     # test_road_segmentation()
     parser = argparse.ArgumentParser(description="Road Segmentation")
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
@@ -329,7 +303,7 @@ if __name__ == "__main__":
     config.gpu_options.allow_growth = True
 
     # Only allow a total of half the GPU memory to be allocated
-    # config.gpu_options.per_process_gpu_memory_fraction = 0.85
+    config.gpu_options.per_process_gpu_memory_fraction = 0.85
 
     # create a session with the above option specified
     k.tensorflow_backend.set_session(tf.Session(config=config))
