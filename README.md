@@ -69,12 +69,11 @@ concat(z64, z32, z16)->Dec->S
 - Transfer learning to other datasets ? [Perform prediction and training on a dataset that is different from KITTI's sensor configuration ?]
 
 # Future goals (Deadline to be fixed, CVPR ?)
-- Evaluate geometrical features (normal) performance (Leo)
-- Move to Semantic KITTI and evaluate performance on the road class (Leo/Ravi)
 - Work on Front view and evaluate performance with subsampling, models : u-net, squeezenet, lodnn (Leo/Ravi)
-- Evaluate the performance of spectral features from Pyntcloud w and w/o subsampling (Thomas)
-- Correct/Fix the HOG computation (Ravi)
+- Correct/Fix the HOG computation (Ravi), What is better way to perform fusion with image in front view and bird eye view and evaluate how this scales with subsampling
 - Handle Class imbalance (very few points corresponding to road)
+- **Why not perform complete semantic segmentation on all classes ? And study the performance on class vs subsampling ?**
+	-(this objects would suffer with subsampling though camera fusion would help better here)
 
 # Secondary goals if we have time
 - **Density estimation** : Improve 2d-grid feature extraction in BEV using kernel density estimate
