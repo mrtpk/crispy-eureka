@@ -69,6 +69,12 @@ concat(z64, z32, z16)->Dec->S
 - Transfer learning to other datasets ? [Perform prediction and training on a dataset that is different from KITTI's sensor configuration ?]
 
 # Future goals (Deadline to be fixed, CVPR ?)
+- Conferences : 
+	- [http://www.visapp.visigrapp.org](VISAPP 2020, Malta), October 4, 2019 (This seems ideal for a small version of the current paper)
+	- [http://cvpr2020.thecvf.com/](CVPR 2020, Seattle, US), Nov 15, 2019 (this is quite a tough conference, would be great to aim for this, but we would need a solid submission)
+	- [https://eccv2020.eu/important-dates/](ECCV 2020, Glasgow), March 2020 (TBA, this is quite a tough conference, would be great to aim for this, but we would need a solid submission)
+	- [https://www.micc.unifi.it/icpr2020/index.php/important-dates/](ICPR, Milan) March 2, 2020 
+
 - Work on Front view and evaluate performance with subsampling, models : u-net, squeezenet, lodnn (Leo/Ravi)
 - Correct/Fix the HOG computation (Ravi), What is better way to perform fusion with image in front view and bird eye view and evaluate how this scales with subsampling
 - Handle Class imbalance (very few points corresponding to road)
