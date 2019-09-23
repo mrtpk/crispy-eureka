@@ -22,6 +22,15 @@ import pandas as pd
 
 # memory cache now pre-evalutes get_feature functions.
 # Attention if you change the code make sure you empty the cachefolder to re-evalaute these features.
+
+def remove_bg_channel(gt_train):
+    """ 
+    Use a single channel output to be able to use focal loss correctly
+    """
+    gt_train = gt_train[:, :, :, 0]
+    gt_train = gt_train[:, :, :, np.newaxis]
+    return gt_train
+
 def get_unique_id():
     return datetime.datetime.today().strftime('%Y_%m_%d_%H_%M')
 
@@ -111,29 +120,35 @@ class KittiPointCloudClass:
     Kitti point cloud dataset to load dataset, subsampling and feature extraction
     """
 
-    def __init__(self, dataset_path,
-                 add_geometrical_features,
-                 subsample,
-                 compute_HOG,
-                 eigen_neighbors,
-                 view,
-                 subsample_ratio=1,
-                 dataset='kitti',
-                 sequences=None):
+    def __init__(self, feature_flags, view, dataset='kitti', sequences=None):
+        
         # get dataset
+        self.dataset_path = '../' #this is hardcoded, so intializing KPC instance withit
+
         if dataset == 'kitti':
-            self.train_set, self.valid_set, self.test_set = dls.get_dataset(dataset_path, is_training=True)
+            self.train_set, self.valid_set, self.test_set = dls.get_dataset(self.dataset_path, is_training=True)
         else:
-            self.train_set, self.valid_set, self.test_set = dls.get_semantic_kitti_dataset(dataset_path,
+            self.train_set, self.valid_set, self.test_set = dls.get_semantic_kitti_dataset(self.dataset_path,
                                                                                            is_training=True,
                                                                                            sequences=sequences)
 
-        self.add_geometrical_features = add_geometrical_features  # Flag
-        self.subsample = subsample  # Flag
-        self.compute_HOG = compute_HOG  # Flag
-        self.compute_eigen = eigen_neighbors > 0 # Flag
-        self.kneighbors = eigen_neighbors
+        self.add_geometrical_features = feature_flags['add_geometrical_features']  # Flag
+        self.subsample_flag = feature_flags['subsample_flag']  # Flag
+        self.subsample_ratio = feature_flags['subsample_ratio']
+        self.compute_HOG = feature_flags['compute_HOG']  # Flag
+        self.compute_eigen = feature_flags['compute_eigen'] > 0 # Flag
+        self.kneighbors = feature_flags['compute_eigen']
         self.view = view
+        self.model_name = feature_flags['model_name']
+        # number of channels in the images
+        self.n_channels = 6
+        if feature_flags['add_geometrical_features']:
+            self.n_channels += 3
+        if feature_flags['compute_HOG']:
+            self.n_channels += 6
+        if feature_flags['compute_eigen'] > 0:
+            self.n_channels += 6
+        
         if dataset != 'kitti' and view!='bev':
             self.side_range = (-100, 100)
             self.fwd_range = (0, 100)
@@ -153,7 +168,7 @@ class KittiPointCloudClass:
         self.subsample_ratio = 1
         self.write_to_disk = 1
 
-        if self.subsample:  # in  case we subsample we fix sub_sample ratio bigger than 1
+        if self.subsample_flag:  # in  case we subsample we fix sub_sample ratio bigger than 1
             self.subsample_ratio = 2 if subsample_ratio == 1 else subsample_ratio
 
         self.num_layers = 64 // self.subsample_ratio
@@ -190,7 +205,7 @@ class KittiPointCloudClass:
         self.z_max = max(self.z_max, np.max(points[:, 2]))
 
         fname_prefix = "features_" + fname + '_'
-        if self.subsample:
+        if self.subsample_flag:
             points = subsample_pc(points, sub_ratio=self.subsample_ratio)
             fname_prefix = fname_prefix + 'subsample_' + self.subsample_ratio + '_'
         filtered_points = pc.filter_points(points, side_range=self.side_range,
@@ -279,7 +294,7 @@ class KittiPointCloudClass:
         self.z_min, self.z_max = np.min(z_vals[:, 0]), np.max(z_vals[:, 1])
         print("Height ranges from {} to {}".format(self.z_min, self.z_max))
 
-        if self.subsample:
+        if self.subsample_flag:
             print('Read and Subsample cloud')
             t = time()
             f_train = dls.process_list(f_train, subsample_pc, sub_ratio=self.subsample_ratio)
@@ -310,7 +325,7 @@ class KittiPointCloudClass:
             f_cam_calib_valid = zip(f_valid, len(f_valid) * [None], len(f_valid) * [None])
             f_cam_calib_test = zip(f_test, len(f_test) * [None], len(f_test) * [None])
 
-            
+        # Ideally this needs to be within the data-generator
         f_train = dls.process_list(f_cam_calib_train, self.get_features)
         f_valid = dls.process_list(f_cam_calib_valid, self.get_features)
         f_test = dls.process_list(f_cam_calib_test, self.get_features)
@@ -337,7 +352,7 @@ class KittiPointCloudClass:
         calib = raw_info[2]
 
         # vector containing for each point the id of the layer that captured the point
-        if self.subsample and points.shape[1]>4:
+        if self.subsample_flag and points.shape[1]>4:
             layers = points[:, 4].astype(int) // self.subsample_ratio
         else:
             layers = retrieve_layers(points[:, :3])
@@ -354,7 +369,7 @@ class KittiPointCloudClass:
         az_angles = np.arccos(z / radial)
         # todo: check the case of a sub sampled point cloud
         len_azimuthal = 64
-        if self.subsample:
+        if self.subsample_flag:
             len_azimuthal = 32 if self.subsample_ratio != 4 else 16
 
         az_means = np.zeros(len_azimuthal)
