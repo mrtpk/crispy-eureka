@@ -1,9 +1,13 @@
 # crispy-eureka (new readme, please go through completely!)
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
-* ~~Currently submitted to [CVRSUAD ICCVW 2019](https://sites.google.com/view/cvrsuad/), decision : Refused~~
-* ~~New Deadline : [ICCRA'20](https://www.ieee-ras.org/component/rseventspro/event/1145-icra-2020-call-for-papers-deadline), ** Sep. 15, 2019*~~
-* ~~New Deadline : [ML4AD - NeurIPS](https://ml4ad.github.io/), Sep. 17 2019, decision: Notification of acceptance Oct. 1, ~~
+* [VISAPP 2020](http://www.visapp.visigrapp.org/CallForPapers.aspx) Malta, Position Papers Paper Submission: November 15, 2019 (good target for an intermediate version)
 
+## Later deadlines (conferences)
+* [CVPR 2020](http://cvpr2020.thecvf.com/) US : Nov 15 2019 (tough to get in though ;) given the short time)
+* [ECCV 2020](https://eccv2020.eu/important-dates/) SEC, GLASGOW, March 2020
+* [EUSIPCO 2020](https://eusipco2020.org/calls/) Full paper submission: February 21, 2020
+* [ICPR 2020](https://www.micc.unifi.it/icpr2020/index.php/important-dates/) Main Conference June 1, 2020
+* [ICPRAI 2020 ]
 # Current model architectures (Front View)
 - X is input domain size (WxHxK), S is binary segmentation 
 - X64 \in 64x1000, X32 \in 32x1000, X16 \in 16x1000
