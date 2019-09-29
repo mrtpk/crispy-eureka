@@ -1,7 +1,12 @@
 # crispy-eureka (new readme, please go through completely!)
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
 * [VISAPP 2020](http://www.visapp.visigrapp.org/CallForPapers.aspx) Malta, Position Papers Paper Submission: **November 15, 2019** (good target for an intermediate version)
+
+## French conferences
+* [ESANN 2020](https://www.esann.org/) Bruges, Beglium **18 Nov 2019** (more DNN based paper)
 * [ISPRS 2020](http://www.isprs2020-nice.com/) Nice, France, 3 February 2020, Deadline for abstracts & full papers: technical sessions and young investigators
+* [RFIAP 2020, CAp 2020](https://www.sciencesconf.org/browse/conference/?confid=8780) Conférences jointes sur l'Apprentissage automatique - Reconnaissance des Formes, Image, Apprentissage et Perception
+
 ## Later deadlines (conferences)
 * [CVPR 2020](http://cvpr2020.thecvf.com/) US : Nov 15 2019 (tough to get in though ;) given the short time)
 * [ECCV 2020](https://eccv2020.eu/important-dates/) SEC, GLASGOW, March 2020 (looks good for a good submission)
