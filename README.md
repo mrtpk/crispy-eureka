@@ -1,13 +1,15 @@
 # crispy-eureka (new readme, please go through completely!)
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
-* [VISAPP 2020](http://www.visapp.visigrapp.org/CallForPapers.aspx) Malta, Position Papers Paper Submission: November 15, 2019 (good target for an intermediate version)
-
+* [VISAPP 2020](http://www.visapp.visigrapp.org/CallForPapers.aspx) Malta, Position Papers Paper Submission: **November 15, 2019** (good target for an intermediate version)
+* [ISPRS 2020](http://www.isprs2020-nice.com/) Nice, France, 3 February 2020, Deadline for abstracts & full papers: technical sessions and young investigators
 ## Later deadlines (conferences)
 * [CVPR 2020](http://cvpr2020.thecvf.com/) US : Nov 15 2019 (tough to get in though ;) given the short time)
-* [ECCV 2020](https://eccv2020.eu/important-dates/) SEC, GLASGOW, March 2020
+* [ECCV 2020](https://eccv2020.eu/important-dates/) SEC, GLASGOW, March 2020 (looks good for a good submission)
+* [IROS 2020](http://www.iros2020.org/) Tentative Paper Submission Deadline : March 1, 2020
 * [EUSIPCO 2020](https://eusipco2020.org/calls/) Full paper submission: February 21, 2020
 * [ICPR 2020](https://www.micc.unifi.it/icpr2020/index.php/important-dates/) Main Conference June 1, 2020
-* [ICPRAI 2020 ]
+* [3DV 2020](http://3dv2020.dgcv.nii.ac.jp/) International Conference on 3D Vision : early August, 2020
+
 # Current model architectures (Front View)
 - X is input domain size (WxHxK), S is binary segmentation 
 - X64 \in 64x1000, X32 \in 32x1000, X16 \in 16x1000
