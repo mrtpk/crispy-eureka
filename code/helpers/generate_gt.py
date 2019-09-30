@@ -289,10 +289,10 @@ def generate_kitti_gt(path):
 
     print(pc_new_dir)
 
-    for pc_path, gt_img_path, gt_bev_path, calib_path in zip(pc_fileslist,
+    for pc_path, gt_img_path, gt_bev_path, calib_path in tqdm(zip(pc_fileslist,
                                                              gt_fileslist,
                                                              gt_bev_fileslist,
-                                                             calib_fileslist):
+                                                             calib_fileslist)):
         # loading data from file
         pc = dls.load_bin_file(pc_path)
         gt_img = dls.get_image(gt_img_path, is_color=True, rgb=False)
@@ -300,7 +300,7 @@ def generate_kitti_gt(path):
         # retrieving labels for point clouds
         points = generate_point_cloud_gt(pc, gt_img, c)
         filename = pc_path.split('/')[-1]
-        print(os.path.join(pc_new_dir, filename))
+        # print(os.path.join(pc_new_dir, filename))
         points.astype(np.float32).tofile(os.path.join(pc_new_dir, filename))
         gt_front_img = project_gt_to_front(points, label_idx=-1)
         gt_front_img.save(os.path.join(gt_front_new_dir, gt_bev_path.split('/')[-1]))
