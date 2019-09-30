@@ -141,6 +141,55 @@ def get_lodnn_model(shape=(400,200, 6)):
                    ])
     return model
 
+def get_unet_bn_model(input_size = (400,200,6), subsample_ratio=1):
+    inputs = keras.layers.Input(input_size)
+    conv1 = keras.layers.Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)
+    bn1 = BatchNormalization()(conv1)
+    pool1 = keras.layers.MaxPooling2D(pool_size=(1, 2))(bn1)
+    conv2 = keras.layers.Conv2D(16, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool1)
+    bn2 = BatchNormalization()(conv2)
+    pool3 = keras.layers.MaxPooling2D(pool_size=(1, 2))(bn2)
+    conv4 = keras.layers.Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool3)
+    bn4 = BatchNormalization()(conv4)
+    drop4 = keras.layers.Dropout(0.5)(bn4)
+    pool4 = keras.layers.MaxPooling2D(pool_size=(1, 2))(drop4)
+    drop5 = keras.layers.Dropout(0.5)(pool4)
+
+    up6 = keras.layers.Conv2D(32, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(keras.layers.UpSampling2D(size = (1,2))(drop5))
+    bn6 = BatchNormalization()(up6)
+    merge6 = keras.layers.concatenate([drop4,bn6], axis = 3)
+    conv6 = keras.layers.Conv2D(16, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge6)
+    bn7 = BatchNormalization()(conv6)
+
+    up7 = keras.layers.Conv2D(16, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(keras.layers.UpSampling2D(size = (1,2))(bn7))
+    bn8 = BatchNormalization()(up7)
+    merge7 = keras.layers.concatenate([conv2,bn8], axis = 3)
+    conv7 = keras.layers.Conv2D(16, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge7)
+    bn9 = BatchNormalization()(conv7)
+    up8 = keras.layers.Conv2D(16, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(keras.layers.UpSampling2D(size = (1,2))(bn9))
+    bn10 = BatchNormalization()(up8)
+    merge8 = keras.layers.concatenate([conv1,bn10], axis = 3)
+    conv8 = keras.layers.Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(merge8)
+    bn11 = BatchNormalization()(conv8)
+
+    if subsample_ratio % 2 == 0:
+        conv8 = keras.layers.Conv2D(8, 3, activation= 'relu', padding='same', kernel_initializer='he_normal')(
+            keras.layers.UpSampling2D(size=(2,1))(bn11))
+        conv8 = BatchNormalization()(conv8)
+    if subsample_ratio % 4 == 0:
+        conv8 = keras.layers.Conv2D(8, 3, activation='relu', padding='same', kernel_initializer='he_normal')(
+            keras.layers.UpSampling2D(size=(2, 1))(bn11))
+        conv8 = BatchNormalization()(conv8)
+
+    conv9 = keras.layers.Conv2D(2, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv8)
+    conv9 = BatchNormalization()(conv9)
+    conv10 = keras.layers.Conv2D(1, 1, activation = 'sigmoid')(conv9)
+    conv10 = BatchNormalization()(conv10)
+
+    model = keras.models.Model(input = inputs, output = conv10)
+    
+    return model
+
 def get_unet_model(input_size = (400,200,6), subsample_ratio=1):
     inputs = keras.layers.Input(input_size)
     conv1 = keras.layers.Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)

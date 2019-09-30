@@ -159,7 +159,11 @@ def test_road_segmentation(model_name, feature_flags,
         model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
     elif model_name == 'unet':
         model = dl_models.get_unet_model(input_size=(f_train.shape[1], f_train.shape[2], n_channels),
-                                         subsample_ratio=subsample_ratio)
+                                         subsample_ratio=feature_flags['subsample_ratio'])
+    elif model_name == 'unetbn':
+        #batch norm over unet
+        model = dl_models.get_unet_model(input_size=(f_train.shape[1], f_train.shape[2], n_channels),
+                                         subsample_ratio=feature_flags['subsample_ratio'])
 
     elif model_name == 'unet6':
         model = dl_models.u_net6(shape=(f_train.shape[1], f_train.shape[2], n_channels),

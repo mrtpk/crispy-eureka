@@ -15,7 +15,7 @@ from skimage.morphology import opening, rectangle
 import keras
 from keras.callbacks import TensorBoard, EarlyStopping
 from tqdm import tqdm
-
+import helpers.generate_gt as generate_gt
 from pyntcloud import PyntCloud
 import pandas as pd
 
@@ -123,11 +123,13 @@ class KittiPointCloudClass:
     def __init__(self, feature_flags, view, dataset='kitti', sequences=None):
         
         # get dataset
-        self.dataset_path = '../' #this is hardcoded, so intializing KPC instance withit
 
         if dataset == 'kitti':
+            self.dataset_path = '../'
+            write_front_view_GT(dataset='kitti')
             self.train_set, self.valid_set, self.test_set = dls.get_dataset(self.dataset_path, is_training=True)
         else:
+            self.dataset_path = '../dataset/SemanticKITTI/dataset/kitti/dataset/' #we need to fix a common setup for semantic kitti paths
             self.train_set, self.valid_set, self.test_set = dls.get_semantic_kitti_dataset(self.dataset_path,
                                                                                            is_training=True,
                                                                                            sequences=sequences)
@@ -272,10 +274,11 @@ class KittiPointCloudClass:
         """
         #self.COUNT_MAX = []
         print('Reading cloud')
+        print(self.train_set["pc"])
         f_train = dls.load_pc(self.train_set["pc"][0:])
         f_valid = dls.load_pc(self.valid_set["pc"][0:])
         f_test = dls.load_pc(self.test_set["pc"][0:])
-
+        
         if self.compute_HOG:
             print('Reading calibration files')
             cal_train = dls.process_calib(self.train_set["calib"][0:])
@@ -548,7 +551,7 @@ class KittiPointCloudClass:
         if self.view == 'bev':
             lidx, _, _ = _get_lidx(points, self.side_range, self.fwd_range, self.res)
         else:
-            if self.subsample:
+            if self.subsample_flag:
                 l = points[:, 4].astype(int) // self.subsample_ratio
                 lidx, _, _ = _get_spherical_lidx(points, self.res_planar, layers=l)
             else:

@@ -39,17 +39,22 @@ def remove_last_n(lst, n):
     '''
     return lst[:-n or None], lst[-n:]
 
-def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
-
+def get_semantic_kitti_dataset(sem_kitti_path, 
+                               is_training=True, 
+                               sequences=None, 
+                               subsample_frame=10):
+    """
+    @sem_kitti_path : Contains path to one level above the sequences folder in semantic kitti
+    """
     # semantic Kitti basedir. TODO: decide if add this to parameters of the function
 
-    sem_kitti_basedir = 'dataset/SemanticKITTI/dataset/sequences'
+    sem_kitti_basedir = os.path.join(sem_kitti_path+'sequences')
     # train_sequences = ["{:02}".format(i) for i in range(11)]  ## according to semantic-kitti.yaml
     # train_sequences.remove('08')
 
-    train_sequences = ["03","04"]
+    train_sequences = ["00","10"]
     # test_sequences = ["{:02}".format(i) for i in range(11, 22, 1)]
-    test_sequences = ["01", "08"]
+    test_sequences = ["08"]
 
     # initialize dataset
     dataset = {'imgs': [], 'calib': [], 'gt': [], 'gt_bev': [], 'gt_front': [], 'lodnn_gt': [], 'pc': []}
@@ -67,59 +72,62 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
         testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
 
         for s in sequences:
-            imgs_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
-            pc_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
-            gt_bev_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
-            gt_front_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
-            calib_list = len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
-                         [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
+            # imgs_list = sorted(glob(os.path.join(sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+            pc_list = sorted(glob(os.path.join(sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+            pc_list = pc_list[::subsample_frame]
+            # gt_bev_list = sorted(glob(os.path.join(sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+            gt_front_list = sorted(glob(os.path.join(sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
+            gt_front_list = gt_front_list[::subsample_frame]
+            # calib_list = len(os.listdir(os.path.join(sem_kitti_basedir, s, imgs_dir))) * \
+                        #  [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
 
             # the first 80% of the cases are putted in the train the remaining 20% are used for validation
-            num_frames_in_seq = len(imgs_list)
+            # num_frames_in_seq = len(imgs_list)
+            num_frames_in_seq = len(pc_list)
             n_frames_in_train = np.floor(num_frames_in_seq * 0.8).astype(int)
 
             if s in train_sequences:
-                trainset['imgs'] += imgs_list[:n_frames_in_train]
+                # trainset['imgs'] += imgs_list[:n_frames_in_train]
                 trainset['pc'] += pc_list[:n_frames_in_train]
-                trainset['gt_bev'] +=  gt_bev_list[:n_frames_in_train]
+                # trainset['gt_bev'] +=  gt_bev_list[:n_frames_in_train]
                 trainset['gt_front'] += gt_front_list[:n_frames_in_train]
-                trainset['calib'] += calib_list[:n_frames_in_train]
+                # trainset['calib'] += calib_list[:n_frames_in_train]
 
-                validset['imgs'] += imgs_list[n_frames_in_train:]
+                # validset['imgs'] += imgs_list[n_frames_in_train:]
                 validset['pc'] += pc_list[n_frames_in_train:]
-                validset['gt_bev'] += gt_bev_list[n_frames_in_train:]
+                # validset['gt_bev'] += gt_bev_list[n_frames_in_train:]
                 validset['gt_front'] += gt_front_list[n_frames_in_train:]
-                validset['calib'] += calib_list[n_frames_in_train:]
+                # validset['calib'] += calib_list[n_frames_in_train:]
 
             if s in test_sequences:
-                imgs_list = imgs_list[0:-1:10]
+                # imgs_list = imgs_list[0:-1:10]
                 pc_list = pc_list[0:-1:10]
-                gt_bev_list = gt_bev_list[0:-1:10]
+                # gt_bev_list = gt_bev_list[0:-1:10]
                 gt_front_list = gt_front_list[0:-1:10]
-                calib_list = calib_list[0:-1:10]
+                # calib_list = calib_list[0:-1:10]
                 if s == '01':  ## to speedup training. todo remove this condition later
-                    testset['imgs'] += imgs_list[:10]
+                    # testset['imgs'] += imgs_list[:10]
                     testset['pc'] += pc_list[:10]
-                    testset['gt_bev'] += gt_bev_list[:10]
+                    # testset['gt_bev'] += gt_bev_list[:10]
                     testset['gt_front'] += gt_front_list[:10]
-                    testset['calib'] += calib_list[:10]
+                    # testset['calib'] += calib_list[:10]
                 else:
-                    testset['imgs'] += sorted(imgs_list)
+                    # testset['imgs'] += sorted(imgs_list)
                     testset['pc'] += sorted(pc_list)
-                    testset['gt_bev'] += sorted(gt_bev_list)
+                    # testset['gt_bev'] += sorted(gt_bev_list)
                     testset['gt_front'] += sorted(gt_front_list)
-                    testset['calib'] += sorted(calib_list)
+                    # testset['calib'] += sorted(calib_list)
             #     raise ValueError("Sequence {} not in the dataset".format(s))
-
+            # print(trainset)
         return  trainset, validset, testset
     else:
         for s in sequences:
-            dataset['imgs'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
-            dataset['pc'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
-            dataset['gt_bev'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
-            dataset['gt_front'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
-            dataset['calib'] += len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
-                                [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+            # dataset['imgs'] += sorted(glob(os.path.join(sem_kitti_basedir, s, imgs_dir) + '/*.png'))
+            dataset['pc'] += sorted(glob(os.path.join(sem_kitti_basedir, s, pc_dir) + '/*.bin'))
+            # dataset['gt_bev'] += sorted(glob(os.path.join(sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
+            dataset['gt_front'] += sorted(glob(os.path.join(sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
+            # dataset['calib'] += len(os.listdir(os.path.join(sem_kitti_basedir, s, imgs_dir))) * \
+                                # [os.path.join(sem_kitti_basedir, s) + '/calib.txt']
 
         return dataset
 
@@ -209,7 +217,7 @@ def process_list(pc_list, func, **kwargs):
     '''
     Process point cloud from KITTI dataset using given function
     '''
-    nCPU = 1 #mp.cpu_count()
+    nCPU = mp.cpu_count()-1
     print('nCPUs = ' + repr(nCPU))
     pool = mp.Pool(processes=nCPU)
     from functools import partial
