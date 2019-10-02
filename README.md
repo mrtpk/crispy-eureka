@@ -1,9 +1,14 @@
 # crispy-eureka (new readme, please go through completely!)
+* Meeting notes : 
+	* Evaluate on all closes ? Do complete semantic seg and add specific ablation study section on roads/cars
+	* Use temporal aggreation from Semantic KITTI
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
 * [VISAPP 2020](http://www.visapp.visigrapp.org/CallForPapers.aspx) Malta, Position Papers Paper Submission: **November 15, 2019** (good target for an intermediate version)
+* [ESANN 2020](https://www.esann.org/) Bruges, Beglium **18 Nov 2019** (more DNN based paper)
+* Longer version ==> plan for journal
+* Meeting with Beatrice/Santiago [Leo to plan]
 
 ## French conferences
-* [ESANN 2020](https://www.esann.org/) Bruges, Beglium **18 Nov 2019** (more DNN based paper)
 * [ISPRS 2020](http://www.isprs2020-nice.com/) Nice, France, 3 February 2020, Deadline for abstracts & full papers: technical sessions and young investigators
 * [RFIAP 2020, CAp 2020](https://www.sciencesconf.org/browse/conference/?confid=8780) Conférences jointes sur l'Apprentissage automatique - Reconnaissance des Formes, Image, Apprentissage et Perception
 
