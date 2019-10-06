@@ -209,7 +209,7 @@ def process_list(pc_list, func, **kwargs):
     '''
     Process point cloud from KITTI dataset using given function
     '''
-    nCPU = mp.cpu_count()
+    nCPU = 1 #mp.cpu_count()
     print('nCPUs = ' + repr(nCPU))
     pool = mp.Pool(processes=nCPU)
     from functools import partial

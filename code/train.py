@@ -20,18 +20,16 @@ import keras_contrib
 # from helpers.sgdr import SGDRScheduler
 # from helpers.lr_finder import LRFinder, get_lr_for_model
 
-def remove_bg_channel(gt_train):
-    """ 
-    Use a single channel output to be able to use focal loss correctly
-    """
-    gt_train = gt_train[:, :, :, 0]
-    gt_train = gt_train[:, :, :, np.newaxis]
-    return gt_train
 
+# def test_feature(model_name, feature, view, dataset, sequences=None):
+#     for subsample_ratio, s in zip([1, 2, 4], ['', 'Subsampled_32', 'Subsampled_16']):
+    
+
+#     return
 
 def test_all(model_name, view, dataset, sequences=None):
     """ 
-    Test simple features, geomtric features with and without subsampling at 16, 32, 64 if possible
+    All tests simple features, geomtric features with and without subsampling at 16, 32, 64 if possible
     """
 
     all_results = {}
@@ -45,14 +43,16 @@ def test_all(model_name, view, dataset, sequences=None):
                     subsample_flag = True if subsample_ratio % 2 == 0 else False
                     key = (add_geometrical_features, subsample_flag, compute_HOG, compute_eigen)
                     test_name[key] = prefix+g+s+h+e
+                    feature_flags = {}
+                    feature_flags['add_geometrical_features']=add_geometrical_features
+                    feature_flags['subsample_flag']=subsample_flag
+                    feature_flags['subsample_ratio']=subsample_ratio
+                    feature_flags['compute_HOG']=compute_HOG
+                    feature_flags['compute_eigen'] = compute_eigen
                     print(test_name[key])
                     all_results[key] = test_road_segmentation(model_name,
-                                                            add_geometrical_features=add_geometrical_features,
-                                                            subsample_flag=subsample_flag,
-                                                            compute_HOG=compute_HOG,
-                                                            compute_eigen = compute_eigen,
-                                                            view=view,
-                                                            subsample_ratio=subsample_ratio,
+                                                            feature_flags=feature_flags,
+                                                            view=view,                                        
                                                             test_name=test_name[key],
                                                             dataset=dataset,
                                                             sequences=sequences)
@@ -60,69 +60,28 @@ def test_all(model_name, view, dataset, sequences=None):
     return all_results
 
 
-def get_KPC_setup(model_name,
-                  add_geometrical_features = True,
-                  subsample_flag = True,
-                  compute_HOG = False,
-                  compute_eigen = 0,
-                  view='bev',
-                  subsample_ratio=1,
-                  dataset='kitti',
-                  sequences=None):
-    PATH = '../'  # path of the repo.
-    _NAME = 'experiment0'  # name of experiment
+def test_road_segmentation(model_name, feature_flags,
+                           view='bev', test_name='Test_',
+                           dataset='kitti', sequences=None):
+
+    feature_flags['model_name'] = model_name
+    KPC = utils.KittiPointCloudClass(feature_flags=feature_flags,
+                                     view=view,
+                                     dataset=dataset,
+                                     sequences=sequences)
+    NAME = 'experiment0'  # name of experiment
     # It is better to create a folder with runid in the experiment folder
-    _EXP, _LOG, _TMP, _RUN_PATH = dls.create_dir_struct(PATH, _NAME)
+    _EXP, _LOG, _TMP, _RUN_PATH = dls.create_dir_struct(KPC.dataset_path, NAME)
     logger = Logger('EXP0', _LOG + 'experiment0.log')
     logger.debug('Logger EXP0 int')
     # paths
     run_id = model_name + '_' + utils.get_unique_id()
     path = utils.create_run_dir(_RUN_PATH, run_id)
     callbacks = utils.get_basic_callbacks(path)
-
-    # create dataclass
-    KPC = utils.KittiPointCloudClass(dataset_path=PATH,
-                                     add_geometrical_features=add_geometrical_features,
-                                     subsample=subsample_flag,
-                                     compute_HOG=compute_HOG,
-                                     eigen_neighbors=compute_eigen,
-                                     view=view,
-                                     subsample_ratio=subsample_ratio,
-                                     dataset=dataset,
-                                     sequences=sequences)
-    # number of channels in the images
-    n_channels = 6
-    if add_geometrical_features:
-        n_channels += 3
-    if compute_HOG:
-        n_channels += 6
-    if compute_eigen > 0:
-        n_channels += 6
-
-    return _NAME, run_id, path, callbacks, KPC, n_channels
-
-
-def test_road_segmentation(model_name,
-                           add_geometrical_features = True,
-                           subsample_flag = True,
-                           compute_HOG = False,
-                           compute_eigen = 0,
-                           view='bev',
-                           subsample_ratio=1,
-                           test_name='Test_',
-                           dataset='kitti',
-                           sequences=None):
-    _NAME, run_id, path, callbacks, KPC, n_channels = get_KPC_setup(model_name,
-                                                                    add_geometrical_features = add_geometrical_features,
-                                                                    subsample_flag = subsample_flag,
-                                                                    compute_eigen = compute_eigen,
-                                                                    view=view,
-                                                                    compute_HOG=compute_HOG,
-                                                                    subsample_ratio=subsample_ratio,
-                                                                    dataset=dataset,
-                                                                    sequences=sequences)
-    #KPC.write_all_features()
     
+    #KPC.write_all_features()
+    n_channels = KPC.n_channels
+
     #get dataset should load all paths/write out txt file to write output feature maps
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset()
 
@@ -144,9 +103,9 @@ def test_road_segmentation(model_name,
         gt_test = np.pad(gt_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
         gt_test[:, n_col:, n_row:, 1] = 1  # set the new pixels to non-road
 
-        gt_train = remove_bg_channel(gt_train)
-        gt_valid = remove_bg_channel(gt_valid)
-        gt_test = remove_bg_channel(gt_test)
+        gt_train = utils.remove_bg_channel(gt_train)
+        gt_valid = utils.remove_bg_channel(gt_valid)
+        gt_test = utils.remove_bg_channel(gt_test)
 
     print(f_test.shape, gt_test.shape)
 
@@ -194,6 +153,8 @@ def test_road_segmentation(model_name,
     # test_datagen = ImageDataGenerator() #horizontal_flip=True #add this ?
     # test_iterator = test_datagen.flow(f_test, gt_test,
     #                 batch_size=1, shuffle=True)
+    
+    #TODO : Make sure that models are chosen based on the view (BEV, front)
     if model_name == 'lodnn':
         model = dl_models.get_lodnn_model(shape=(400, 200, n_channels))
     elif model_name == 'unet':
@@ -206,6 +167,7 @@ def test_road_segmentation(model_name,
                                  int_space=32,
                                  output_channels=2)
     elif model_name == 'squeeze':
+        #TODO this is not a squeezeSeg network, it is a simple classifier (encoder part only)
         model = dl_models.SqueezeNet(2, input_shape=(f_train.shape[1], f_train.shape[2], n_channels))
     else:
         raise ValueError("Acceptable values for model parameter are 'lodnn', 'unet', 'unet6'.")
@@ -283,8 +245,9 @@ def test_road_segmentation(model_name,
     return result
 
 if __name__ == "__main__":
-    # test_road_segmentation()
+    
     parser = argparse.ArgumentParser(description="Road Segmentation")
+    parser.add_argument('--feature', default='classic', type=str, help='architecture to use for evaluation')
     parser.add_argument('--model', default='lodnn', type=str, help='architecture to use for evaluation')
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
     parser.add_argument('--view', default='bev', type=str,

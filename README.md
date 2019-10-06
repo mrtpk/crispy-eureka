@@ -1,8 +1,24 @@
 # crispy-eureka (new readme, please go through completely!)
+* Meeting notes : 
+	* Evaluate on all closes ? Do complete semantic seg and add specific ablation study section on roads/cars
+	* Use temporal aggreation from Semantic KITTI
 * Evaluating the effect of spatial resolution for road detection using Lidar point clouds, camera and geometrical features
-* ~~Currently submitted to [CVRSUAD ICCVW 2019](https://sites.google.com/view/cvrsuad/), decision : Refused~~
-* ~~New Deadline : [ICCRA'20](https://www.ieee-ras.org/component/rseventspro/event/1145-icra-2020-call-for-papers-deadline), ** Sep. 15, 2019*~~
-* ~~New Deadline : [ML4AD - NeurIPS](https://ml4ad.github.io/), Sep. 17 2019, decision: Notification of acceptance Oct. 1, ~~
+* [VISAPP 2020](http://www.visapp.visigrapp.org/CallForPapers.aspx) Malta, Position Papers Paper Submission: **November 15, 2019** (good target for an intermediate version)
+* [ESANN 2020](https://www.esann.org/) Bruges, Beglium **18 Nov 2019** (more DNN based paper)
+* Longer version ==> plan for journal
+* Meeting with Beatrice/Santiago [Leo to plan]
+
+## French conferences
+* [ISPRS 2020](http://www.isprs2020-nice.com/) Nice, France, 3 February 2020, Deadline for abstracts & full papers: technical sessions and young investigators
+* [RFIAP 2020, CAp 2020](https://www.sciencesconf.org/browse/conference/?confid=8780) Conférences jointes sur l'Apprentissage automatique - Reconnaissance des Formes, Image, Apprentissage et Perception
+
+## Later deadlines (conferences)
+* [CVPR 2020](http://cvpr2020.thecvf.com/) US : Nov 15 2019 (tough to get in though ;) given the short time)
+* [ECCV 2020](https://eccv2020.eu/important-dates/) SEC, GLASGOW, March 2020 (looks good for a good submission)
+* [IROS 2020](http://www.iros2020.org/) Tentative Paper Submission Deadline : March 1, 2020
+* [EUSIPCO 2020](https://eusipco2020.org/calls/) Full paper submission: February 21, 2020
+* [ICPR 2020](https://www.micc.unifi.it/icpr2020/index.php/important-dates/) Main Conference June 1, 2020
+* [3DV 2020](http://3dv2020.dgcv.nii.ac.jp/) International Conference on 3D Vision : early August, 2020
 
 # Current model architectures (Front View)
 - X is input domain size (WxHxK), S is binary segmentation 
