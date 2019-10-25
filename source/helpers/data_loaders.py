@@ -6,10 +6,12 @@
 # get_image : load the image specified in path
 
 import numpy as np
+import pandas as pd
 import cv2
 from glob import glob
 import os
 import copy
+from pyntcloud import PyntCloud
 from tqdm import tqdm
 import multiprocessing as mp
 # from . import calibration # from helpers.calibration import Calibration
@@ -93,16 +95,16 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
                 validset['gt_front'] += gt_front_list[n_frames_in_train:]
                 validset['calib'] += calib_list[n_frames_in_train:]
 
-            if s in test_sequences:
-                testset['imgs'] += imgs_list[::5]
-                testset['pc'] += pc_list[::5]
-                testset['gt_bev'] += gt_bev_list[::5]
-                testset['gt_front'] += gt_front_list[::5]
-                testset['calib'] += calib_list[::5]
+            # if s in test_sequences:
+            #     testset['imgs'] += imgs_list[::5]
+            #     testset['pc'] += pc_list[::5]
+            #     testset['gt_bev'] += gt_bev_list[::5]
+            #     testset['gt_front'] += gt_front_list[::5]
+            #     testset['calib'] += calib_list[::5]
 
             #     raise ValueError("Sequence {} not in the dataset".format(s))
 
-        return  trainset, validset, testset
+        return  trainset, validset
     else:
         for s in sequences:
             imgs_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
@@ -119,14 +121,7 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
             dataset['gt_bev'] += gt_bev_list
             dataset['gt_front'] += gt_front_list
             dataset['calib'] += calib_list
-            #
-            # dataset['imgs'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
-            # dataset['pc'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
-            # dataset['labels'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, label_dir) + '/*.label'))
-            # dataset['gt_bev'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
-            # dataset['gt_front'] += sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
-            # dataset['calib'] += len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
-            #                     [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+
 
         return dataset
 
@@ -142,61 +137,51 @@ def get_dataset(path, is_training=True):
     KITTI ground truths, BEV of KITTI ground truths, LoDNN ground truths,
     calibration files, and point clouds.
     '''
-    if is_training is True:
-        #what is the utlity of these cat variables
-        cat_um = (0, 95, 95)
-        cat_umm = (95, 191, 96)
-        cat_uu = (191, 289, 98)
-        dataset = {'imgs':[],'calib':[],'gt':[],'gt_bev':[], 'gt_front':[], 'lodnn_gt':[], 'pc':[]}
-        
-        img_path = '/dataset/KITTI/dataset/data_road/training/image_2/*.png'
-        gt_path = '/dataset/KITTI/dataset/data_road/training/gt_image_2/*.png'
-        calib_path = '/dataset/KITTI/dataset/data_road/training/calib/*.txt'
-        pc_path = '/dataset/KITTI/dataset/data_road_velodyne/training/velodyne/*.bin'
-        bev_gt_path = '/dataset/KITTI/dataset/data_road/training/gt_bev/*.png'
-        front_gt_path = '/dataset/KITTI/dataset/data_road/training/gt_front/*.png'
-        lodnn_path = '/dataset/LoDNN/dataset/gt/*_gt.png'
-        
-        img_paths = sorted(glob(path + img_path))      
-        sample_names = [x.split('/')[-1].split('.')[0] for x in img_paths]
-        um, umm, uu = sample_names[0: 95], sample_names[95:191], sample_names[191:289] 
-        #how are train, test and valid sets created
-        test, valid, train = [], [], []
-        for i in [test, valid]:
-            um, _i = remove_last_n(um, 10)
-            i.extend(_i)
-            umm, _i = remove_last_n(umm, 10) 
-            i.extend(_i)
-            uu, _i = remove_last_n(uu, 10)
-            i.extend(_i)
-        train = um + umm + uu #what is the utility of this variable ?
+    dataset = {'imgs':[],'calib':[],'gt':[],'gt_bev':[], 'gt_front':[], 'lodnn_gt':[], 'pc':[]}
 
-        testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
-        
-        for name, _dataset in zip(['train', 'test', 'valid'], [trainset, testset, validset]):
-            sample_names = eval(name)
-            for sample_name in sample_names:
-                _dataset['imgs'].append(path + img_path.replace('*', sample_name))
-                _dataset['calib'].append(path + calib_path.replace('*', sample_name))
-                _dataset['gt'].append(path + gt_path.replace('*', sample_name.replace("_", "_road_")))
-                _dataset['gt_bev'].append(path + bev_gt_path.replace('*', sample_name.replace("_", "_road_")))
-                _dataset['gt_front'].append(path + front_gt_path.replace('*', sample_name.replace("_", "_road_")))
-                _dataset['lodnn_gt'].append(path + lodnn_path.replace('*', sample_name))
-                _dataset['pc'].append(path + pc_path.replace('*', sample_name))
-        
-        return trainset, validset, testset
+    img_path = '/dataset/KITTI/dataset/data_road/training/image_2/*.png'
+    gt_path = '/dataset/KITTI/dataset/data_road/training/gt_image_2/*.png'
+    calib_path = '/dataset/KITTI/dataset/data_road/training/calib/*.txt'
+    pc_path = '/dataset/KITTI/dataset/data_road_velodyne/training/velodyne/*.bin'
+    bev_gt_path = '/dataset/KITTI/dataset/data_road/training/gt_bev/*.png'
+    front_gt_path = '/dataset/KITTI/dataset/data_road/training/gt_front/*.png'
+    lodnn_path = '/dataset/LoDNN/dataset/gt/*_gt.png'
+
+    img_paths = sorted(glob(path + img_path))
+    sample_names = [x.split('/')[-1].split('.')[0] for x in img_paths]
+    um, umm, uu = sample_names[0: 95], sample_names[95:191], sample_names[191:289]
+    #how are train, test and valid sets created
+    # basically in the next lines we:
+    # 1 ) take from um, umm and uu lists 10 files each (total 30) and add those files to test list
+    # 2 ) repeat the same procedure to remove other last 10 files each from um, umm and uu and add them to valid list
+    test, valid, train = [], [], []
+    for i in [test, valid]:
+        um, _i = remove_last_n(um, 10)
+        i.extend(_i)
+        umm, _i = remove_last_n(umm, 10)
+        i.extend(_i)
+        uu, _i = remove_last_n(uu, 10)
+        i.extend(_i)
+
+    train = um + umm + uu  # train list is composed with the remaining files in lists um, umm, uu
+
+    testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
+
+    for name, _dataset in zip(['train', 'test', 'valid'], [trainset, testset, validset]):
+        sample_names = eval(name)
+        for sample_name in sample_names:
+            _dataset['imgs'].append(path + img_path.replace('*', sample_name))
+            _dataset['calib'].append(path + calib_path.replace('*', sample_name))
+            _dataset['gt'].append(path + gt_path.replace('*', sample_name.replace("_", "_road_")))
+            _dataset['gt_bev'].append(path + bev_gt_path.replace('*', sample_name.replace("_", "_road_")))
+            _dataset['gt_front'].append(path + front_gt_path.replace('*', sample_name.replace("_", "_road_")))
+            _dataset['lodnn_gt'].append(path + lodnn_path.replace('*', sample_name))
+            _dataset['pc'].append(path + pc_path.replace('*', sample_name))
+
+    if is_training:
+        return trainset, validset
     else:
-        # category
-        # um - 0:96
-        # umm - 96:190
-        # uu - 190: 290
-        img_path = '/dataset/KITTI/dataset/data_road/testing/image_2/*.png'
-        calib_path = '/dataset/KITTI/dataset/data_road/testing/calib/*.txt'
-        pc_path = '/dataset/KITTI/dataset/data_road_velodyne/testing/velodyne/*.bin'
-        img_paths = sorted(glob(path + img_path))
-        calib_paths = sorted(glob(path + calib_path))
-        pc_paths = sorted(glob(path + pc_path))
-        return {'imgs':img_paths,'calib':calib_paths,'gt':[],'gt_bev':[],'gt_front':[],'lodnn_gt':[], 'pc':pc_paths}
+        return testset
 
 def load_label_file(bin_path):
     labels = np.fromfile(bin_path, dtype=np.uint32).reshape(-1)
@@ -280,3 +265,9 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
         Optionally specify the data type of the output
     """
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
+
+def load_pyntcloud(filename):
+    points = load_bin_file(filename)
+    cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
+    return cloud
+
