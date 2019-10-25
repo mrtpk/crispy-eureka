@@ -10,61 +10,91 @@ class AbstractProjector(ABC):
         super(AbstractProjector, self).__init__()
 
     @abstractmethod
-    def project_point(self, point, *args, **kwargs):
+    def project_point(self, point):
         pass
 
     @abstractmethod
-    def get_image_size(self, points):
+    def get_image_size(self):
         pass
 
 
-class LinearProjector(AbstractProjector):
+class BEVProjector(AbstractProjector):
     """
-    Class used to linearly project a point to an image. Can be used to obtain BEV images
+    Class used project a point cloud on a BEV image
     """
-    def __init__(self, res_width=5, res_height=5):
+    def __init__(self, H=400, W=200, res=0.1):
         """
         Class constructor
+
         Parameters
         ----------
-        res_width: float
-            resolution along width of the image expressed in px/meter
+        H: int
+            img height
 
-        res_height: float
-            resolution along height of the image expressed in px/meter
+        W: int
+            img width
+
+        res: float
+            spatial resolution
         """
-        self.res_width = res_width
-        self.res_height = res_height
-        super(LinearProjector, self).__init__()
+        self.proj_H = H
+        self.proj_W = W
+        self.res = res
+        self.side_range = (-10, 10)
+        self.fwd_range = (6, 46)
 
-    def project_point(self, point, *args, **kwargs):
+        super(BEVProjector, self).__init__()
+
+    def set_ranges(self, side_range, fwd_range):
+        self.side_range = side_range
+        self.fwd_range = fwd_range
+
+    def project_point(self, point, x0=None, y0=None, delta_x=None, delta_y=None):
         """
         Function that project a 3D point on a pixel of image
-        :param point: 2 dimensional point
-        :param args:
-        :param kwargs:
-        :return:
+
+        Parameters
+        ----------
+        point: ndarray
+            point to project
+
+        Returns
+        -------
+
         """
-        if len(point.shape) > 1:  # if there are more than a point to project
 
-            # first coordinate
-            i = np.floor(point[:, 1] * self.res_height).astype(int)
-            # the second coordinate is associated to the column coordinate of the image
-            j = np.floor(point[:, 0] * self.res_width).astype(int)
-        else:
-            # the first coordinate is associated to the row coordinate of the image
-            i = np.floor(point[1] * self.res_height).astype(np.int)
-            # the second coordinate is associated to the column coordinate of the image
-            j = np.floor(point[0] * self.res_width).astype(np.int)
+        if len(point.shape) < 2:
+            point = np.atleast_2d(point)
 
-        return i, j
+        # we suppose that we are working with kitti velodyne, thus the reference system of the point cloud is
+        #
+        #                x
+        #                ^
+        #                |
+        #                |
+        #         y <----0 Car
+        #
+        x = point[:, 0]
+        y = point[:, 1]
 
-    def get_image_size(self, points):
-        delta_x, delta_y, _ = np.abs(points.max(0) - points.min(0))
-        height = np.ceil(delta_y * self.res_height).astype(int)
-        width = np.ceil(delta_x * self.res_width).astype(int)
+        # MAPPING
+        # Mappings from one point to grid
+        # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
+        j_img_mapping = (-y / self.res).astype(np.int32)  # x axis is -y in LIDAR
+        i_img_mapping = (x / self.res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
 
-        return height, width
+        # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
+        # floor used to prevent issues with -ve vals rounding upwards
+        j_img_mapping -= int(np.floor(self.side_range[0] / self.res))
+        i_img_mapping -= int(np.floor(self.fwd_range[0] / self.res))
+
+        # Linerize the mappings to 1D
+        lidx = ((-i_img_mapping) % self.proj_H) * self.proj_W + j_img_mapping
+
+        return lidx, i_img_mapping, j_img_mapping
+
+    def get_image_size(self):
+        return self.proj_H, self.proj_W
 
 
 class SphericalProjector(AbstractProjector):
@@ -72,100 +102,105 @@ class SphericalProjector(AbstractProjector):
     Class that is used to project a point to a spherical image
     """
 
-    def __init__(self, res_az=100, res_planar=300):
+    def __init__(self, H=64, W=1024, fov_up=85.0, fov_down=115.0):
         """
+        Parameters
+        ----------
+        H: int
+            img height
+
+        W: int
+            img width
+
+        fov_up: float
+            up field of view
+
+        fov_down: float
+            down field of view
+        """
+        self.proj_H = H
+        self.proj_W = W
+        self.proj_fov_up = fov_up
+        self.proj_fov_down = fov_down
+
+        super(AbstractProjector, self).__init__()
+
+    def project_point(self, points):
+        """
+        Function used to project points to the spherical image
 
         Parameters
         ----------
-        res_az: float
-            resolution along azimuthal angle
+        points: ndarray
+            input point cloud
 
-        res_planar: float
-            resolution along planar angle
+        Returns
+        -------
+        lidx: ndarray
+            pixel id where each point is projected
+
+        i_img_mapping: ndarray
+            pixel row coordinate for each point projected
+
+        j_img_mapping: ndarray
+            pixel col coordinate for each point projected
         """
+        # number of columns in the image
+        # img_width = np.ceil(np.pi * res_planar).astype(int)
 
-        self.res_az = res_az
+        # x coordinates
+        x = points[:, 0]
+        # y coordinates
+        y = points[:, 1]
+        # z coordinates
+        z = points[:, 2]
 
-        self.res_planar = res_planar
+        # lengths of points
+        rho = np.linalg.norm(points[:, :3], axis=1)
 
-        super(SphericalProjector, self).__init__()
+        # we need to invert orientation of y coordinates
+        yaw = np.arctan2(-y, x)
 
-    @staticmethod
-    def _get_spherical_coordinates(p):
-        """
-        Function that apply spherical transformation to a 3D point in coordinates X,Y,Z
-        :param p: 3D point in cartesian coordinates (X,Y,Z)
-        :return rho, planar, azimuthal: spherical coordinates
-        """
-        if len(p.shape) == 1:
-            # norm of the point
-            rho = np.linalg.norm(p)
+        pitch = np.arccos(z / rho)
 
-            # trivial case
-            if rho == 0:
-                return 0, 0, 0
+        fov_up = self.proj_fov_up / 180.0 * np.pi  # field of view up in rad
+        fov_down = self.proj_fov_down / 180.0 * np.pi  # field of view down in rad
+        fov = fov_down - fov_up  # get field of view total in rad
 
-            # planar angle
-            planar = np.arctan2(p[1], p[0]) + np.pi
+        # get projections in image coords
+        i_img_mapping = (pitch - fov_up) / fov  # in [0.0, 1.0]
+        j_img_mapping = 0.5 * (yaw / np.pi + 1.0)  # in [0.0, 1.0]
 
-            # azimuthal angle
-            azimuthal = np.arccos(p[2] / rho)
-        else:
-            # vector of planar angles
-            planar = np.arctan2(p[:, 1], p[:, 0]) + np.pi
+        # scale to image size using angular resolution
+        i_img_mapping *= self.proj_H  # in [0.0, H]
+        j_img_mapping *= self.proj_W  # in [0.0, W]
 
-            # norm of each point in the point list
-            rho = np.sqrt(np.square(p[:, 0]) + np.square(p[:, 1]) + np.square(p[:, 1]))
+        # round and clamp for use as index
+        i_img_mapping = np.floor(i_img_mapping)
+        i_img_mapping = np.minimum(self.proj_H - 1, i_img_mapping)
+        i_img_mapping = np.maximum(0, i_img_mapping).astype(np.int32)  # in [0,H-1]
 
-            azimuthal = np.zeros(len(rho))
-            #
-            # # vector of azimuthal angles
-            azimuthal[rho != 0] = np.arccos(p[rho != 0, 2] / rho[rho != 0])
+        j_img_mapping = np.floor(j_img_mapping)
+        j_img_mapping = np.minimum(self.proj_W - 1, j_img_mapping)
+        j_img_mapping = np.maximum(0, j_img_mapping).astype(np.int32)  # in [0,W-1]
 
-            # fix for the trivial case of x,y,z = (0,0,0)
-            if (rho == 0).sum() > 0:
-                planar[rho == 0] = 0
-                azimuthal[rho == 0] = 0
+        lidx = (i_img_mapping * self.proj_W) + j_img_mapping
 
-        return rho, planar, azimuthal
+        return lidx, i_img_mapping, j_img_mapping
 
-    def project_point(self, point, *args, **kwargs):
-        """
-        Function that project a point from 3D to a pixel of a spherical image
-        :param point:
-        :param args:
-        :param kwargs:
-        :return:
-        """
+    def get_image_size(self):
 
-        rho, planar, az = self._get_spherical_coordinates(point)
-
-        i = np.floor(az * self.res_az).astype(np.int)
-        j = np.floor(planar * self.res_planar).astype(np.int)
-
-        return i, j
-
-    def get_image_size(self, points):
-        """
-        Method that computes image size given a point cloud
-        :param points:
-        :return:
-        """
-
-        height = np.ceil(np.pi * self.res_az).astype(int)
-
-        width = np.ceil(2 * np.pi * self.res_planar).astype(int)
-
-        return height, width
+        return self.proj_H, self.proj_W
 
 
 class Projection:
     def __init__(self,
                  proj_type,
-                 res_planar=-1,
-                 res_azimuthal=-1,
-                 res_x=-1,
-                 res_y=-1):
+                 H=64,
+                 W=1024,
+                 fov_up=85.0,
+                 fov_down=115.0,
+                 res=-1):
         """
         Constructor of class Projection
 
@@ -179,14 +214,17 @@ class Projection:
 
             Linear: The point cloud is projected over one of the three main principal plane that are XY, XZ, YZ.
 
-        res_planar: float
-            Used only for Spherical projections. This value is the resolution (pixel/radiant)
-            to use for the planar angle
+        H: int
+            Used only for Spherical projections. This value represents the height of the spherical image
 
-        res_azimuthal: float
-            Used only for Spherical projection. This value is the resolution (pixel/radiant)
-            to use for the azimuthal angle
+        W: int
+            Used only for Spherical projection. This value represents the width of the spherical image
 
+        fov_up: float
+            Used only for Spherical projection. This value represents the upper value of the vertical field of view
+
+        fov_down: float
+            Used only for Spherical projection. This value represents the bottom value of the vertical field of view.
 
         res_x: float
             Used only for linear projection. This value is the resolution (pixel/meter) to use for the x-axis.
@@ -196,41 +234,39 @@ class Projection:
 
         """
         self.proj_type = proj_type
+        self.img_H = H
+        self.img_W = W
+        if self.proj_type == 'front':
+            self.projector = self._init_spherical_projector(H=H, W=W, fov_up=fov_up, fov_down=fov_down)
 
-        if self.proj_type == 'spherical':
-            self.res_planar = res_planar
-            self.res_azimuthal = res_azimuthal
-            self.projector = self._init_spherical_projector(self.res_azimuthal, self.res_planar)
-
-        elif self.proj_type == 'linear':
-            self.res_x = res_x
-            self.res_y = res_y
-            self.projector = self._init_linear_projector(self.res_x, self.res_y)
+        elif self.proj_type == 'bev':
+            self.res = res
+            self.projector = self._init_linear_projector(H=H, W=W, res=self.res)
 
         else:
-            raise ValueError("Projection Type can be only 'spherical' or 'linear'")
+            raise ValueError("Projection Type can be only 'front' or 'bev'")
 
     @staticmethod
-    def _init_spherical_projector(res_az, res_planar):
+    def _init_spherical_projector(H, W, fov_up, fov_down):
         """
         Function that initialize a spherical projector
 
         Parameters
         ----------
-        res_az: float
-            Resolution for the azimuthal angle
-        res_planar: float
-            Resolution for the planar angle
+        H: int
+            height of the image
+        W: int
+            width of the image
 
         Returns
         -------
         SphericalProjector: BaseProjector (object)
             Spherical projector
         """
-        return SphericalProjector(res_az=res_az, res_planar=res_planar)
+        return SphericalProjector(H=H, W=W, fov_up=fov_up, fov_down=fov_down)
 
     @staticmethod
-    def _init_linear_projector(res_x, res_y):
+    def _init_linear_projector(H, W, res):
         """
         Function that initialize a linear projector
 
@@ -246,73 +282,107 @@ class Projection:
         LinearProjection: BaseProjector (object)
             Linear projector
         """
-        return LinearProjector(res_width=res_x, res_height=res_y)
+        return BEVProjector(H=H, W=W, res=res)
 
-    def project_points_values(self, points, values, res_values=1, dtype=np.uint16, f=max):
+    def project_points_values(self, points, values, aggregate_func='max'):
         """
-        General function that generates a projection image given a point cloud and an array of values.
-        At each point in the point cloud must correspond a value in the values array.
-        Using the class projector we identify the pixel p[n]=(i[n],j[n]) where the points[n] is projected, and we assign
-        values[n] as value to the projection image img[i[n],[j[n]].
-
-        In case of collision of multiple points over the same pixel the function f is used to assign the final value.
+        Function that project an array of values to an image
 
         Parameters
         ----------
         points: ndarray
-            Nx3 array representing the point cloud
+            Array containing the point cloud
 
         values: ndarray
-            Values to project over the image
+            Array containing the values to project
 
-        res_values: float
-            Resolution to use for the value
+        aggregate_func: optional {'max', 'min', 'mean'}
+            Function to use to aggregate the information in case of collision, i.e. when two or more points
+            are projected to the same pixel.
+            'max': take the maximum value among all the values projected to the same pixel
+            'min': take the minimum value among all the values projected to the same pixel
+            'mean': take the mean value among all the values projected to the same pixel
 
-        dtype: data-type, optional
-            Type of resulting image value. Example np.uint16 or np.float.
-
-        f: function
-            Function to use for collisions.
 
         Returns
         -------
-        img: ndarray
-            Projection image.
-
+        proj_img: ndarray
+            Image containing projected values
         """
-        # Project point and get the pixels where the points are projected
-        I, J = self.projector.project_point(points)
+        nr, nc = self.projector.get_image_size()
+        if len(values.shape) < 2:
+            channel_shape = 1
+            values = np.atleast_2d(values).T
+        else:
+            _, channel_shape = values.shape[:2]
 
-        # Nx2 array with pixels coordinates
-        IJ = np.c_[I, J]
+        if channel_shape > 1:
+            if type(aggregate_func) is str:
+                aggregators = [aggregate_func] * channel_shape
+            else:
+                assert len(aggregate_func) == channel_shape
+                aggregators = aggregate_func
+        else:
+            aggregators = [aggregate_func]
+        # we verify that the length of the two arrays is the same
+        # that is for each point we have a corresponding value to project
+        assert len(points) == len(values)
+        # project points to image
+        lidx, i_img_mapping, j_img_mapping = self.projector.project_point(points)
 
-        # getting uniques pixels and inverse array to rebuild IJ
-        unique, inverse = np.unique(IJ, return_inverse=True, axis=0)
+        # initialize binned_feature map
+        binned_values = np.zeros((nr * nc, values.shape[1]))
 
-        # for each unique pixel
-        values_dict = {i: [] for i in range(len(unique))}
+        if 'max' in aggregators or 'min' in aggregators:
+            # auxiliary variables to compute minimum and maximum
+            sidx = lidx.argsort()
+            idx = lidx[sidx]
+            # we select the indices of the first time a unique value in lidx appears
+            # np.r_[True, idx[:1] != idx[1:]] is true if an element in idx is different than its successive
+            # flat non zeros returns indices of values that are non zeros in the array
+            m_idx = np.flatnonzero(np.r_[True, idx[:-1] != idx[1:]])
 
-        # projection values
-        proj_values = values * res_values
+            unq_ids = idx[m_idx]
 
-        # after this loop the dictionary values_dict contains for each unique pixel the list of values projected over
-        # the pixel
-        for n in range(len(proj_values)):
-            values_dict[inverse[n]].append(proj_values[n])
+        if 'mean' in aggregators:
+            # auxiliary vector to compute binned count
+            count_input = np.ones_like(values[:, 0])
+            binned_count = np.bincount(lidx, count_input, minlength=nr * nc)
 
-        # height and width of projection image
-        height, width = self.projector.get_image_size(points)
+        for i, func in zip(range(values.shape[1]),aggregators):
 
-        # initialize projection image
-        img = np.zeros((height, width), dtype=dtype)
+            if func == 'max':
+                """
+                Examples
+                --------
+                To take the running sum of four successive values:
 
-        # in the following loop we assign the final value to each unique pixel
-        for k in values_dict:
-            img[unique[k][0], unique[k][1]] = f(values_dict[k]).astype(dtype)
+                >>> np.add.reduceat(np.arange(8),[0,4, 1,5, 2,6, 3,7])[::2]
+                array([ 6, 10, 14, 18])
 
-        return img
+                """
+                binned_values[unq_ids, i] = np.maximum.reduceat(values[sidx, i], m_idx)
 
-    def back_project(self, points, img, res_value=1, dtype=np.float):
+            elif func == 'min':
+                binned_values[unq_ids, i] = np.minimum.reduceat(values[sidx, i], m_idx)
+
+            elif func == 'sum':
+                binned_values[:, i] = np.bincount(lidx, values[:, i], minlength=nr * nc)
+
+            else:  # otherwise we compute mean values
+                binned_values[:, i] = np.bincount(lidx, values[:, i], minlength=nr * nc)
+                binned_values[:, i] = np.divide(binned_values[:, i], binned_count, out=np.zeros_like(binned_count),
+                                                where=binned_count != 0.0)
+
+        # reshape binned_features to feature map
+        binned_values_map = binned_values.reshape((nr, nc, values.shape[1]))
+
+        if channel_shape == 1:
+            binned_values_map = binned_values_map[:, :, 0]
+
+        return binned_values_map
+
+    def back_project(self, points, img, res_value=1):
         """
         Function that back project values in a projection image to point cloud
 
@@ -327,9 +397,6 @@ class Projection:
         res_value: float
             Resolution value
 
-        dtype: data-type, optional
-            Type for the back projection values
-
         Returns
         -------
         values: ndarray
@@ -339,15 +406,12 @@ class Projection:
         # shape of projection image
         nr, nc, nz = np.atleast_3d(img).shape
 
-        # initializing array of values
-        values = np.zeros((len(points), nz), dtype=dtype)
-
         # retrieving pixels coordinates
-        i, j = self.projector.project_point(points)
+        lidx, i_img_mapping, j_img_mapping = self.projector.project_point(points)
 
-        # we assign values at each point
-        for n in range(len(points)):
-            values[n] = img[i[n], j[n]] / res_value
+        img_f = img.reshape(nr*nc, nz)
+
+        values = img_f[lidx, :] * res_value
 
         if nz == 1:
             return values.flatten()
