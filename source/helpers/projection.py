@@ -22,23 +22,23 @@ class BEVProjector(AbstractProjector):
     """
     Class used project a point cloud on a BEV image
     """
-    def __init__(self, H=400, W=200, res=0.1):
+    def __init__(self, height=400, width=200, res=0.1):
         """
         Class constructor
 
         Parameters
         ----------
-        H: int
+        height: int
             img height
 
-        W: int
+        width: int
             img width
 
         res: float
             spatial resolution
         """
-        self.proj_H = H
-        self.proj_W = W
+        self.proj_H = height
+        self.proj_W = width
         self.res = res
         self.side_range = (-10, 10)
         self.fwd_range = (6, 46)
@@ -58,8 +58,17 @@ class BEVProjector(AbstractProjector):
         point: ndarray
             point to project
 
+        x0: float
+
+        y0: float
+
+        delta_x: float
+
+        delta_y: float
+
         Returns
         -------
+
 
         """
 
@@ -102,14 +111,14 @@ class SphericalProjector(AbstractProjector):
     Class that is used to project a point to a spherical image
     """
 
-    def __init__(self, H=64, W=1024, fov_up=85.0, fov_down=115.0):
+    def __init__(self, height=64, width=1024, fov_up=85.0, fov_down=115.0):
         """
         Parameters
         ----------
-        H: int
+        height: int
             img height
 
-        W: int
+        width: int
             img width
 
         fov_up: float
@@ -118,8 +127,8 @@ class SphericalProjector(AbstractProjector):
         fov_down: float
             down field of view
         """
-        self.proj_H = H
-        self.proj_W = W
+        self.proj_H = height
+        self.proj_W = width
         self.proj_fov_up = fov_up
         self.proj_fov_down = fov_down
 
@@ -196,8 +205,8 @@ class SphericalProjector(AbstractProjector):
 class Projection:
     def __init__(self,
                  proj_type,
-                 H=64,
-                 W=1024,
+                 height=64,
+                 width=1024,
                  fov_up=85.0,
                  fov_down=115.0,
                  res=-1):
@@ -214,10 +223,10 @@ class Projection:
 
             Linear: The point cloud is projected over one of the three main principal plane that are XY, XZ, YZ.
 
-        H: int
+        height: int
             Used only for Spherical projections. This value represents the height of the spherical image
 
-        W: int
+        width: int
             Used only for Spherical projection. This value represents the width of the spherical image
 
         fov_up: float
@@ -226,36 +235,34 @@ class Projection:
         fov_down: float
             Used only for Spherical projection. This value represents the bottom value of the vertical field of view.
 
-        res_x: float
-            Used only for linear projection. This value is the resolution (pixel/meter) to use for the x-axis.
-
-        res_y: float
-            Used only for linear projection. This value is the resolution (pixel/meter) to use for the y-axis.
+        res: float
+            Used to chose resolution on BEV images.
 
         """
         self.proj_type = proj_type
-        self.img_H = H
-        self.img_W = W
+        self.img_H = height
+        self.img_W = width
         if self.proj_type == 'front':
-            self.projector = self._init_spherical_projector(H=H, W=W, fov_up=fov_up, fov_down=fov_down)
+            self.projector = self._init_spherical_projector(height=height, width=width,
+                                                            fov_up=fov_up, fov_down=fov_down)
 
         elif self.proj_type == 'bev':
             self.res = res
-            self.projector = self._init_linear_projector(H=H, W=W, res=self.res)
+            self.projector = self._init_linear_projector(height=height, width=width, res=self.res)
 
         else:
             raise ValueError("Projection Type can be only 'front' or 'bev'")
 
     @staticmethod
-    def _init_spherical_projector(H, W, fov_up, fov_down):
+    def _init_spherical_projector(height, width, fov_up, fov_down):
         """
         Function that initialize a spherical projector
 
         Parameters
         ----------
-        H: int
+        height: int
             height of the image
-        W: int
+        width: int
             width of the image
 
         Returns
@@ -263,26 +270,30 @@ class Projection:
         SphericalProjector: BaseProjector (object)
             Spherical projector
         """
-        return SphericalProjector(H=H, W=W, fov_up=fov_up, fov_down=fov_down)
+        return SphericalProjector(height=height, width=width, fov_up=fov_up, fov_down=fov_down)
 
     @staticmethod
-    def _init_linear_projector(H, W, res):
+    def _init_linear_projector(height, width, res):
         """
         Function that initialize a linear projector
 
         Parameters
         ----------
-        res_x: float
-            resolution for the x-axis
-        res_y:
-            resolution for the y-axis
+        height: int
+            height of projection image
+
+        width: int
+            width of projection image
+
+        res: float
+            resolution for
 
         Returns
         -------
         LinearProjection: BaseProjector (object)
             Linear projector
         """
-        return BEVProjector(H=H, W=W, res=res)
+        return BEVProjector(height=height, width=width, res=res)
 
     def project_points_values(self, points, values, aggregate_func='max'):
         """
@@ -349,7 +360,7 @@ class Projection:
             count_input = np.ones_like(values[:, 0])
             binned_count = np.bincount(lidx, count_input, minlength=nr * nc)
 
-        for i, func in zip(range(values.shape[1]),aggregators):
+        for i, func in zip(range(values.shape[1]), aggregators):
 
             if func == 'max':
                 """
