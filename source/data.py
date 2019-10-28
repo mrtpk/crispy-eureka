@@ -72,16 +72,16 @@ class KITTIPointCloud:
             # TODO: complete this part
             self.proj_H = 400
             self.proj_W = 200
-            self.proj = Projection(proj_type='bev', H=self.proj_H, W=self.proj_W, res=0.1)
+            self.proj = Projection(proj_type='bev', height=self.proj_H, width=self.proj_W, res=0.1)
             if self.add_geometrical_features:
-                aux_H = 64 if not self.subsample_flag else (64 // self.subsample_ratio)
-                self.aux_proj = Projection(proj_type='front', H=aux_H, W=1024)
+                aux_height = 64 if not self.subsample_flag else (64 // self.subsample_ratio)
+                self.aux_proj = Projection(proj_type='front', height=aux_height, width=1024)
 
         elif self.view == 'front':
             self.proj_W = 1024
             self.proj_H = 64 if not self.subsample_flag else (64 // self.subsample_ratio)
 
-            self.proj = Projection(proj_type='front', H=self.proj_H, W=self.proj_W)
+            self.proj = Projection(proj_type='front', height=self.proj_H, width=self.proj_W)
 
         self.number_of_grids = self.proj_H * self.proj_W
 
@@ -189,7 +189,8 @@ class KITTIPointCloud:
 
         else:
             if self.dataset == 'kitti':
-                pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
+                pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range,
+                                                                  'fwd_range': self.fwd_range})
 
         return process_list(pc_list, self.get_features)
 
@@ -217,10 +218,10 @@ class KITTIPointCloud:
                 normals = self.get_normals_features(point_cloud, self.aux_proj)
 
                 # back project points from front view image to 3D
-                normals_3d = self.aux_proj.back_project(point_cloud[:,:3], normals)
+                normals_3d = self.aux_proj.back_project(point_cloud[:, :3], normals)
 
                 # project 3d normals to BEV image
-                normals = self.proj.project_points_values(point_cloud[:,:3], normals_3d, aggregate_func='mean')
+                normals = self.proj.project_points_values(point_cloud[:, :3], normals_3d, aggregate_func='mean')
             else:
                 # estimage surface normals for front view images
                 normals = self.get_normals_features(point_cloud, self.proj)
@@ -271,13 +272,13 @@ class KITTIPointCloud:
                              norm_z_lidar,  # to compute o_max_elevation
                              norm_z_lidar,  # to compute o_min_elevation
                              norm_z_lidar,  # to compute o_mean_elevation
-                             norm_z_lidar**2,  # to compute o_mean_elevation
-            ]
+                             norm_z_lidar**2]  # to compute o_mean_elevation
+
             aggregators = ['sum', 'mean', 'max', 'min', 'mean', 'mean']
             feat_maps = self.proj.project_points_values(points[:, :3], features, aggregate_func=aggregators)
             o_mean_elevation = feat_maps[:, :, -2].astype(np.float64).copy()
-            o_sqrd_mean_elev = feat_maps[:, :, -1].astype(np.float64).copy()
-            o_std_elevation = np.abs(o_sqrd_mean_elev.astype(np.float64) - np.square(o_mean_elevation.astype(np.float64)))
+            o_2_mean_elev = feat_maps[:, :, -1].astype(np.float64).copy()  # squared mean elevation
+            o_std_elevation = np.abs(o_2_mean_elev.astype(np.float64) - np.square(o_mean_elevation.astype(np.float64)))
             # o_std_elevation[o_std_elevation < 0] = 0
             o_std_elevation = np.sqrt(o_std_elevation)
 
@@ -312,7 +313,7 @@ class KITTIPointCloud:
             estimated surface normals in front view image
         """
 
-        H, W = projector.projector.get_image_size()
+        height, width = projector.projector.get_image_size()
 
         # compute distance from scanner
         rho = np.linalg.norm(points[:, :3], axis=1)
@@ -321,11 +322,11 @@ class KITTIPointCloud:
 
         cl_img = closing(rho_img, square(3))
 
-        rho_img[rho_img==0] = cl_img[rho_img==0]
+        rho_img[rho_img == 0] = cl_img[rho_img == 0]
 
-        yaw_axis = np.linspace(0, 2*np.pi, W)
+        yaw_axis = np.linspace(0, 2*np.pi, width)
 
-        pitch_axis = np.linspace(self.fov_up, self.fov_down, H)
+        pitch_axis = np.linspace(self.fov_up, self.fov_down, height)
 
         normals = estimate_normals_from_spherical_img(rho_img, yaw=yaw_axis, pitch=pitch_axis, res_rho=1.0)
 
@@ -409,7 +410,6 @@ class KITTIPointCloud:
                 # multiclass classification
                 img = self.proj.project_points_values(points, labels)
                 return keras.utils.to_categorical(self.label_map[img.astype(int)], num_classes=self.num_classes)
-
 
     def fetch_gt(self, file_list, limit_index, **kwargs):
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
