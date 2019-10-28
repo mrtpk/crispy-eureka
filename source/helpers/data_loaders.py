@@ -11,6 +11,7 @@ import cv2
 from glob import glob
 import os
 import copy
+import yaml
 from pyntcloud import PyntCloud
 from tqdm import tqdm
 import multiprocessing as mp
@@ -271,3 +272,13 @@ def load_pyntcloud(filename):
     cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
     return cloud
 
+def load_semantic_kitt_config(filename=""):
+
+    if len(filename) == 0:
+        local_path = os.path.dirname(os.path.abspath(__file__))
+        filename = os.path.join(local_path, '..', 'semantic-kitti-api','config','semantic-kitti.yaml')
+
+    with open(filename) as f:
+        config = yaml.safe_load(f)
+
+    return config
