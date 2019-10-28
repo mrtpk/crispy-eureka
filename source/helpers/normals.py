@@ -1,8 +1,8 @@
 import numpy as np
 
 
-# utils functions returning cos and sinus for planar and azimuthal angle
-def _cos_az_grid(shape, az):
+# utils functions returning cos and sinus for yaw and pitch angle
+def _cos_pitch_grid(shape, pitch):
     """
     Given an input shape n,m this function builds a grid of n,m where the value of grid[i,j] = cos(i/res_az)
 
@@ -12,19 +12,19 @@ def _cos_az_grid(shape, az):
     shape: tuple
         image dimension
 
-    res_az: float
-        resolution of the azimuthal angle
+    pitch: float
+        pitch angles
 
     Returns
     -------
     cos_grid: ndarray
-        Grid containing cos of the azimuthal angles
+        Grid containing cos of the vertical angles
     """
-    cos_az = np.repeat(az, shape[1]).reshape(shape)
-    return np.cos(cos_az)
+    pitch_grid = np.repeat(pitch, shape[1]).reshape(shape)
+    return np.cos(pitch_grid)
 
 
-def _sin_az_grid(shape, az):
+def _sin_pitch_grid(shape, pitch):
     """
     Given an input shape n,m this function builds a grid of n,m where the value of grid[i,j] = sin(i/res_az)
 
@@ -34,19 +34,19 @@ def _sin_az_grid(shape, az):
     shape: tuple
         image dimension
 
-    res_az: float
-        resolution of the azimuthal angle
+    pitch: ndarray
+        array of pitch angles
 
     Returns
     -------
     sin_grid: ndarray
-        Grid containing sin of the azimuthal angles
+        Grid containing sin of the vertical angles
     """
-    sin_az = np.repeat(az, shape[1]).reshape(shape)
-    return np.sin(sin_az)
+    pitch_grid = np.repeat(pitch, shape[1]).reshape(shape)
+    return np.sin(pitch_grid)
 
 
-def _sin_pl_grid(shape, res_planar):
+def _sin_yaw_grid(shape, yaw):
     """
     Given an input shape n,m this function builds a grid of n,m where the value of grid[i,j] = sin(j/res_planar + np.pi)
 
@@ -55,8 +55,8 @@ def _sin_pl_grid(shape, res_planar):
     shape: tuple
         image dimension
 
-    res_planar: float
-        resolution of the planar angle
+    yaw: ndarray
+        array of yaw angles
 
     Returns
     -------
@@ -64,11 +64,11 @@ def _sin_pl_grid(shape, res_planar):
         Grid containing cosinus of the planar angles
     """
 
-    sin_pl = np.tile(np.arange(shape[1]), (shape[0], 1)) / res_planar + (np.pi / 2)
-    return np.sin(sin_pl)
+    yaw_grid = np.repeat(yaw, shape[0]).reshape(shape, order='F')
+    return np.sin(yaw_grid)
 
 
-def _cos_pl_grid(shape, res_planar):
+def _cos_yaw_grid(shape, yaw):
     """
     Given an input shape n,m this function builds a grid of n,m where the value of grid[i,j] = cos(j/res_planar + np.pi)
 
@@ -77,8 +77,8 @@ def _cos_pl_grid(shape, res_planar):
     shape: tuple
         image dimension
 
-    res_planar: float
-        resolution of the planar angle
+    yaw: ndarray
+        array of yay angles
 
     Returns
     -------
@@ -86,8 +86,8 @@ def _cos_pl_grid(shape, res_planar):
     cos_grid: ndarray
         Grid containing cos of the planar angles
     """
-    cos_pl = np.tile(np.arange(shape[1]), (shape[0], 1)) / res_planar + (np.pi / 2)
-    return np.cos(cos_pl)
+    yaw_grid = np.repeat(yaw, shape[0]).reshape(shape, order='F')
+    return np.cos(yaw_grid)
 
 
 def shift(key, array, axis=0):
@@ -115,7 +115,6 @@ def shift(key, array, axis=0):
 
     shape = array.shape
     shifted_array = np.zeros(shape, dtype=array.dtype)
-    print(shifted_array.shape)
 
     if axis == 0:
         if key >= 0:
@@ -133,7 +132,7 @@ def shift(key, array, axis=0):
     return shifted_array
 
 
-def shift_on_T2(key, array, axis=0):
+def shift_on_a_torus(key, array, axis=0):
     """
     Utils function that shift on a 2 dimensional thorus, i.e. we identify as equals the top and bottom frontier
     of image and the left and right frontier of image.
@@ -168,9 +167,9 @@ def shift_on_T2(key, array, axis=0):
         raise ValueError('Method only implemented for shift in the 0 or 1 axis')
 
 
-def _azimuthal_rho_derivative(img, res_rho):
+def _pitch_rho_derivative(img, res_rho):
     """
-    Function that compute the derivative of the rho coordinate along azimuthal axis
+    Function that compute the derivative of the rho coordinate along vertical axis
     Parameters
     ----------
     img: ndarray
@@ -182,17 +181,20 @@ def _azimuthal_rho_derivative(img, res_rho):
     Returns
     -------
     az_rho_derivative:  ndarray
-        image of the derivative of rho coordinate along azimuthal axis
+        image of the derivative of rho coordinate along vertical axis
 
     """
-    above = shift_on_T2(-1, img)
-    below = shift_on_T2(1, img)
-    return (below.astype(np.float64) - above.astype(np.float64)) / (2 * res_rho)
+    above = shift_on_a_torus(-1, img)
+    below = shift_on_a_torus(1, img)
+    pitch_deriv = (below.astype(np.float64) - above.astype(np.float64)) / (2 * res_rho)
+    pitch_deriv[0] = (img[0].astype(np.float64) - img[1].astype(np.float64)) / res_rho
+    pitch_deriv[-1] = (img[-1].astype(np.float64) - img[-2].astype(np.float64)) / res_rho
+    return pitch_deriv
 
 
-def _planar_rho_derivative(img, res_rho):
+def _yaw_rho_derivative(img, res_rho):
     """
-    Function that compute the derivative of the rho coordinate along azimuthal axis
+    Function that compute the derivative of the rho coordinate along vertical axis
 
     Parameters
     ----------
@@ -204,16 +206,16 @@ def _planar_rho_derivative(img, res_rho):
 
     Returns
     -------
-    az_rho_derivative:  ndarray
-        image of the derivative of rho coordinate along azimuthal axis
+    yaw_rho_derivative:  ndarray
+        image of the derivative of rho coordinate along vertical axis
 
     """
-    right = shift_on_T2(-1, img, axis=1)
-    left = shift_on_T2(1, img, axis=1)
+    right = shift_on_a_torus(-1, img, axis=1)
+    left = shift_on_a_torus(1, img, axis=1)
     return (left.astype(np.float64) - right.astype(np.float64)) / (2 * res_rho)
 
 
-def azimuthal_derivative(img, az, res_rho, res_planar):
+def pitch_derivative(img, pitch, yaw, res_rho):
     """
 
     Parameters
@@ -221,47 +223,53 @@ def azimuthal_derivative(img, az, res_rho, res_planar):
     img: ndarray
         input image
 
+    pitch: ndarray
+        array of pitch angles
+
+    yaw: ndarray
+        array of yaw angles
+
     res_rho: float
         Resolution of the rho coordinate
 
-    az: float
-        az_centers
-
-    res_planar: float
-        Resolution of the planar coordinate
-
     Returns
     -------
-    _az_derivative_: ndarray
-        azimuthal derivative of the input img
+    _pitch_derivative_: ndarray
+        pitch derivative of the input img
     """
-    # getting az_rho_derivative
-    diff_rho = _azimuthal_rho_derivative(img, res_rho)
+    # getting pitch_rho_derivative
+    diff_rho = _pitch_rho_derivative(img, res_rho)
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_az = _cos_az_grid((nr, nc), az)
-    sin_az = _sin_az_grid((nr, nc), az)
-    cos_pl = _cos_pl_grid((nr, nc), res_planar)
-    sin_pl = _sin_pl_grid((nr, nc), res_planar)
+    cos_pitch = _cos_pitch_grid((nr, nc), pitch)
+    sin_pitch = _sin_pitch_grid((nr, nc), pitch)
+    cos_yaw = _cos_yaw_grid((nr, nc), yaw)
+    sin_yaw = _sin_yaw_grid((nr, nc), yaw)
 
     rho = img.copy()
     rho = rho.astype(np.float64) / res_rho
 
     # initialize img to return
-    _az_derivative_ = np.zeros((nr, nc, 3))
+    _pitch_derivative_ = np.zeros((nr, nc, 3))
+
+    res_pitch = (shift(-1, pitch) - shift(1, pitch)) / 2
+    res_pitch[0] = res_pitch[1]
+    res_pitch[-1] = res_pitch[-2]
+
+    res_pitch = np.repeat(res_pitch, nc).reshape(nr, nc)
 
     # derivative along x
-    _az_derivative_[:, :, 0] = diff_rho * sin_az * cos_pl + (rho / len(az)) * cos_az * cos_pl
+    _pitch_derivative_[:, :, 0] = diff_rho * sin_pitch * cos_yaw + (rho * res_pitch) * cos_pitch * cos_yaw
     # derivative along y
-    _az_derivative_[:, :, 1] = diff_rho * sin_az * sin_pl + (rho / len(az)) * cos_az * sin_pl
+    _pitch_derivative_[:, :, 1] = diff_rho * sin_pitch * sin_yaw + (rho * res_pitch) * cos_pitch * sin_yaw
     # derivative along z
-    _az_derivative_[:, :, 2] = diff_rho * cos_az - (rho / len(az)) * sin_az
+    _pitch_derivative_[:, :, 2] = diff_rho * cos_pitch - (rho * res_pitch) * sin_pitch
 
-    return _az_derivative_
+    return _pitch_derivative_
 
 
-def planar_derivative(img, az, res_rho, res_planar):
+def yaw_derivative(img, pitch, yaw, res_rho):
     """
 
     Parameters
@@ -269,47 +277,53 @@ def planar_derivative(img, az, res_rho, res_planar):
     img: ndarray
         input image
 
+    pitch: ndarray
+         array of pitch angles
+
+    yaw: ndarray
+         array of yaw angles
+
     res_rho: float
         Resolution of the rho coordinate
 
-    res_az: float
-        Resolution of the azimuthal angle
-
-    res_planar: float
-        Resolution of the planar angle
-
     Returns
     -------
-    _pl_derivative_: ndarray
+    _yaw_derivative_: ndarray
         derivative of the input image along the planar coordinate
     """
-    # getting az_rho_derivative
-    diff_rho = _planar_rho_derivative(img, res_rho)
+    # getting yaw_rho_derivative
+    diff_rho = _yaw_rho_derivative(img, res_rho)
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_az = _cos_az_grid((nr, nc), az)
-    sin_az = _sin_az_grid((nr, nc), az)
-    cos_pl = _cos_pl_grid((nr, nc), res_planar)
-    sin_pl = _sin_pl_grid((nr, nc), res_planar)
+    cos_az = _cos_pitch_grid((nr, nc), pitch)
+    sin_az = _sin_pitch_grid((nr, nc), pitch)
+    cos_pl = _cos_yaw_grid((nr, nc), yaw)
+    sin_pl = _sin_yaw_grid((nr, nc), yaw)
 
     rho = img.copy()
     rho = rho.astype(np.float64) / res_rho
 
+    res_yaw = (shift(-1, yaw) - shift(1, yaw)) / 2
+    res_yaw[0] = res_yaw[1]
+    res_yaw[-1] = res_yaw[-2]
+
+    res_yaw = np.repeat(res_yaw, nr).reshape((nr, nc), order='F')
+
     # initialize img to return
-    _pl_derivative_ = np.zeros((nr, nc, 3))
+    _yaw_derivative_ = np.zeros((nr, nc, 3))
 
     # derivative along x
-    _pl_derivative_[:, :, 0] = diff_rho * sin_az * cos_pl - (rho / res_planar) * sin_az * sin_pl
+    _yaw_derivative_[:, :, 0] = diff_rho * sin_az * cos_pl - rho * res_yaw * sin_az * sin_pl
     # derivative along y
-    _pl_derivative_[:, :, 1] = diff_rho * sin_az * sin_pl + (rho / res_planar) * sin_az * cos_pl
+    _yaw_derivative_[:, :, 1] = diff_rho * sin_az * sin_pl + rho * res_yaw * sin_az * cos_pl
     # derivative along z
-    _pl_derivative_[:, :, 2] = diff_rho * cos_az
+    _yaw_derivative_[:, :, 2] = diff_rho * cos_az
 
-    return _pl_derivative_
+    return _yaw_derivative_
 
 
-def estimate_normals_from_spherical_img(img, az, res_rho, res_planar):
+def estimate_normals_from_spherical_img(img, pitch, yaw, res_rho):
     """
     Function that estimates point cloud normals from a spherical img.
     It returns a nr x nc x 3 image such that for each pixel we have the estimated normal
@@ -319,13 +333,13 @@ def estimate_normals_from_spherical_img(img, az, res_rho, res_planar):
     img: ndarray
         input image
 
-    az: float
+    pitch: ndarray
         azimuthal angles
 
     res_rho: float
         Resolution of coordinate rho
 
-    res_planar: float
+    yaw: ndarray
         resolution of coordinate planar
 
 
@@ -335,10 +349,10 @@ def estimate_normals_from_spherical_img(img, az, res_rho, res_planar):
         matrix that at position i,j contains the normal inferred for pixel i,j
     """
 
-    az_deriv = azimuthal_derivative(img, res_rho=res_rho, az=az, res_planar=res_planar)
-    pl_deriv = planar_derivative(img, res_rho=res_rho, az=az, res_planar=res_planar)
+    pitch_deriv = pitch_derivative(img, pitch=pitch, yaw=yaw, res_rho=res_rho)
+    yaw_deriv = yaw_derivative(img, pitch=pitch, yaw=yaw, res_rho=res_rho)
 
-    vr = np.cross(az_deriv, pl_deriv)
+    vr = np.cross(pitch_deriv, yaw_deriv)
     vr_lenght = np.linalg.norm(vr, axis=2)
     idx = vr_lenght > 0
 
