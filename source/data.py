@@ -1,4 +1,5 @@
 import cv2
+import keras
 import pandas as pd
 from pyntcloud import PyntCloud
 from .helpers.data_loaders import *
@@ -57,6 +58,15 @@ class KITTIPointCloud:
             # hard coded parameters for kitti dataset
             self.side_range = (-10, 10)
             self.fwd_range = (6, 46)
+        else:
+            self.config = load_semantic_kitt_config()
+            self.num_classes = len(self.config['labels'].keys())
+            self.max_label = max(self.config['labels'].keys()) + 1
+            label_map = np.zeros(self.max_label)
+            for n, k in enumerate(self.config['labels'].keys()):
+                label_map[k] = n
+
+            self.label_map = label_map
 
         if self.view == 'bev':
             # TODO: complete this part
@@ -119,8 +129,15 @@ class KITTIPointCloud:
             if self.view == 'bev':
                 print("Count varies from 0 to {}".format(self.COUNT_MAX))
 
-            gt_train = self.fetch_gt(self.train_set[gt_key], limit_index, **gt_args)
-            gt_valid = self.fetch_gt(self.valid_set[gt_key], limit_index, **gt_args)
+            if self.dataset == 'kitti':
+                gt_train_data_list = self.train_set[gt_key]
+                gt_valid_data_list = self.train_set[gt_key]
+            else:
+                gt_train_data_list = [[i1, i2] for i1, i2 in zip(self.train_set['pc'], self.train_set['labels'])]
+                gt_valid_data_list = [[i1, i2] for i1, i2 in zip(self.valid_set['pc'], self.valid_set['labels'])]
+
+            gt_train = self.fetch_gt(gt_train_data_list, limit_index, **gt_args)
+            gt_valid = self.fetch_gt(gt_valid_data_list, limit_index, **gt_args)
 
             return np.array(f_train), np.array(gt_train), np.array(f_valid), np.array(gt_valid)
         else:
@@ -131,6 +148,21 @@ class KITTIPointCloud:
             return np.array(f_test), np.array(gt_test)
 
     def load_pc_and_get_features(self, file_list, limit_index=-1):
+        """
+        Function that load point cloud and generate features map
+
+        Parameters
+        ----------
+        file_list: list
+            list of point cloud files to load
+
+        limit_index: int
+            index of max element of list to treat
+
+        Returns:
+        features_map: ndarray
+            array of features maps generated from input point cloud
+        """
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
         pc_list = load_pc(file_list[:max_id])
 
@@ -256,7 +288,7 @@ class KITTIPointCloud:
             feat_maps[:, :, 0] = feat_maps[:, :, 0] / self.COUNT_MAX
         else:
             rho = np.linalg.norm(points[:, :3], axis=1)
-            features = np.c_[rho, r, z]
+            features = np.c_[rho, r, norm_z_lidar]
             feat_maps = self.proj.project_points_values(points[:, :3], features, aggregate_func=['max', 'mean', 'min'])
 
             # renormalize rho values
@@ -322,6 +354,7 @@ class KITTIPointCloud:
         pc = PyntCloud(pd.DataFrame({'x': x, 'y': y, 'z': z, 'r': r}))
         k_neighbors = pc.get_neighbors(k=self.kneighbors)
         eigenvalues = pc.add_scalar_field("eigen_values", k_neighbors=k_neighbors)
+        pc.points[eigenvalues] = pc.points[eigenvalues].values / pc.points[eigenvalues].values.sum(axis=1)[:, None]
         # anisotropy = pc.add_scalar_field("anisotropy", ev=eigenvalues)
         pc.add_scalar_field("curvature", ev=eigenvalues)
         pc.add_scalar_field("eigenentropy", ev=eigenvalues)
@@ -351,16 +384,32 @@ class KITTIPointCloud:
 
         """
         # read a 16-bit image with opencv
-        img = cv2.imread(filename, -1)
 
         if self.dataset == 'kitti':
-            return np.atleast_3d(img)
+            img = cv2.imread(filename, -1)
+            road = img[:, :, 0] / 255  # Road is encoded as 255 in the B plane
+            non_road = 1 - road  # TODO: can we do this in training time?
+            return np.dstack([road, non_road])
 
         elif self.dataset == 'semantickitti':
-            classes = kwargs['classes']
-            out = [img == c for c in classes]
+            pc_filename = filename[0]
+            label_filename = filename[1]
+            labels = load_label_file(label_filename)
+            points = load_bin_file(pc_filename)
+            #
+            # classes should be a list containing classes that we want to isolate for binary segmentation
+            classes = kwargs.get('classes', None)
+            if classes is not None:
+                # binary class classification
+                out = [labels == int(c) for c in classes]
+                labels = sum(out)
+                img = self.proj.project_points_values(points, labels)
+                return np.atleast_3d(img)
+            else:
+                # multiclass classification
+                img = self.proj.project_points_values(points, labels)
+                return keras.utils.to_categorical(self.label_map[img.astype(int)], num_classes=self.num_classes)
 
-            return np.atleast_3d(sum(out))
 
     def fetch_gt(self, file_list, limit_index, **kwargs):
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
