@@ -1,0 +1,15 @@
+{
+  "model": "unet",
+  "dataset": "semantickitti",
+  "view": "front",
+  "parameters":{
+    "compute_classic": "True",
+    "add_geometrical_features": "True",
+    "subsample_ratio": 1,
+    "compute_eigen": 0
+  },
+  "gt_args": {
+    "classes": [40]
+  },
+  "sequences" : [1,2,3]
+}
