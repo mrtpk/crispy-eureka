@@ -1,0 +1,14 @@
+tensorflow-gpu=1.12
+matplotlib
+opencv-contrib-python
+tqdm
+pandas
+joblib 
+pyntcloud
+scikit-learn
+scikit-image
+keras==2.2.5
+keras_drop_block
+larq    
+pythreejs
+git+https://www.github.com/keras-team/keras-contrib.git
