@@ -1,11 +1,13 @@
 import cv2
 import keras
+import numpy as np
 import pandas as pd
 from pyntcloud import PyntCloud
-from .helpers.data_loaders import *
-from .helpers.pointcloud import filter_points
-from .helpers.projection import Projection
-from .helpers.normals import estimate_normals_from_spherical_img
+from helpers.data_loaders import process_list, get_dataset, get_semantic_kitti_dataset, load_pc, load_bin_file
+from helpers.data_loaders import load_label_file, load_semantic_kitt_config
+from helpers.pointcloud import filter_points
+from helpers.projection import Projection
+from helpers.normals import estimate_normals_from_spherical_img
 from skimage.morphology import closing, square, opening, rectangle
 
 DATASET_LOADERS = {
@@ -18,11 +20,12 @@ class KITTIPointCloud:
     """
     Classes that load the point clouds an generate features maps
     """
-    def __init__(self, path, training_parameters, is_training=True, sequences=None, view='bev', dataset='kitti'):
+    def __init__(self, feature_parameters, is_training=True, sequences=None, view='bev', dataset='kitti'):
+        self.dataset_path = '../'
         self.is_training = is_training
 
         self.dataset = dataset
-        data_loader_args = dict(path=path, is_training=is_training)
+        data_loader_args = dict(path=self.dataset_path, is_training=is_training)
 
         if self.dataset == 'semantickitti':
             data_loader_args['sequences'] = sequences
@@ -34,16 +37,13 @@ class KITTIPointCloud:
 
         self.view = view
 
-        self.compute_classic = training_parameters.get('compute_classic', True)
-        self.add_geometrical_features = training_parameters.get('add_geometrical_features', False)
-        self.subsample_flag = training_parameters.get('subsample_flag', False)
-        self.subsample_ratio = training_parameters.get('subsample_ratio', 1)
-        if self.subsample_flag:  # in  case we subsample we fix sub_sample ratio bigger than 1
-            self.subsample_ratio = 2 if self.subsample_ratio == 1 else self.subsample_ratio
+        self.compute_classic = feature_parameters.get('compute_classic', True)
+        self.add_geometrical_features = feature_parameters.get('add_geometrical_features', False)
+        self.subsample_ratio = feature_parameters.get('subsample_ratio', 1)
 
-        self.kneighbors = training_parameters.get('compute_eigen', 0)
+        self.kneighbors = feature_parameters.get('compute_eigen', 0)
         self.compute_eigen = self.kneighbors > 0
-        self.model_name = training_parameters.get('model_name', 'lodnn')
+        self.model_name = feature_parameters.get('model_name', 'lodnn')
 
         self.n_channels = 6 if self.view == 'bev' else 3
         # reset n_channels to 0 if we do not compute classical features
@@ -74,12 +74,12 @@ class KITTIPointCloud:
             self.proj_W = 200
             self.proj = Projection(proj_type='bev', height=self.proj_H, width=self.proj_W, res=0.1)
             if self.add_geometrical_features:
-                aux_height = 64 if not self.subsample_flag else (64 // self.subsample_ratio)
+                aux_height = 64 // self.subsample_ratio
                 self.aux_proj = Projection(proj_type='front', height=aux_height, width=1024)
 
         elif self.view == 'front':
             self.proj_W = 1024
-            self.proj_H = 64 if not self.subsample_flag else (64 // self.subsample_ratio)
+            self.proj_H = 64 // self.subsample_ratio
 
             self.proj = Projection(proj_type='front', height=self.proj_H, width=self.proj_W)
 
@@ -92,9 +92,9 @@ class KITTIPointCloud:
                 self.COUNT_MAX = -1
 
         else:
-            self.z_max = training_parameters.get('z_max')
-            self.z_min = training_parameters.get('z_min')
-            self.COUNT_MAX = training_parameters.get('COUNT_MAX')
+            self.z_max = feature_parameters.get('z_max')
+            self.z_min = feature_parameters.get('z_min')
+            self.COUNT_MAX = feature_parameters.get('COUNT_MAX')
 
             if self.z_max is None:
                 self.z_max = 3.32
@@ -166,7 +166,7 @@ class KITTIPointCloud:
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
         pc_list = load_pc(file_list[:max_id])
 
-        if self.subsample_flag:
+        if self.subsample_ratio > 1:
             pc_list = process_list(pc_list, subsample_pc, sub_ratio=self.subsample_ratio)
 
         if self.is_training:
@@ -365,7 +365,8 @@ class KITTIPointCloud:
         pc.add_scalar_field("planarity", ev=eigenvalues)
         pc.add_scalar_field("sphericity", ev=eigenvalues)
 
-        eigen_features = pc.points.as_matrix(columns=pc.points.columns[7:])
+        eigen_features = pc.points.values[:,7:]
+        # eigen_features = pc.points.as_matrix(columns=pc.points.columns[7:])
 
         return eigen_features
 
