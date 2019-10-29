@@ -25,7 +25,7 @@ def create_dir_struct(path, name):
     Creates necessary directory structure for doing the experiments in 
     specified @param: path with @param: name
     '''
-    experiment_dir = "{}/source/output/{}".format(path, name)
+    experiment_dir = "{}/code/output/{}".format(path, name)
     tmp_dir = "{}/tmp/".format(experiment_dir)
     log_dir = "{}/log/".format(experiment_dir)
     os.makedirs(os.path.dirname(tmp_dir), exist_ok=True)
