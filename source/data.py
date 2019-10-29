@@ -20,8 +20,12 @@ class KITTIPointCloud:
     """
     Classes that load the point clouds an generate features maps
     """
-    def __init__(self, feature_parameters, is_training=True, sequences=None, view='bev', dataset='kitti'):
-        self.dataset_path = '../'
+    def __init__(self, feature_parameters, path='', is_training=True, sequences=None, view='bev', dataset='kitti'):
+        if len(path) == 0:
+            self.dataset_path = '../'
+        else:
+            self.dataset_path = path
+            
         self.is_training = is_training
 
         self.dataset = dataset
