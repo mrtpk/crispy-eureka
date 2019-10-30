@@ -171,7 +171,7 @@ def get_unet_model(shape,
 
     batch2 = BatchNormalization(name='bn2')(conv2)
 
-    pool3 = MaxPooling2D(pool_size=(1, 2))(conv2)
+    pool3 = MaxPooling2D(pool_size=(1, 2))(batch2)
 
     conv4 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
                    activation=activation, padding='same', kernel_initializer=initialization)(pool3)
