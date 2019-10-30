@@ -11,5 +11,12 @@
   "gt_args": {
     "classes": [40]
   },
-  "sequences" : [1,2,3]
+
+  "training_config":{
+    "loss_function": "binary_crossentropy",
+    "learning_rate": 1e-4,
+    "batch_size": 10,
+    "epochs": 100,
+    "optimizer": "keras.optimizers.Nadam"
+  }
 }
