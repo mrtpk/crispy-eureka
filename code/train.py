@@ -58,8 +58,8 @@ def parse_config_file(config_filename):
         subsample_ratio=parameters.get('subsample_ratio', 1),
         compute_eigen=parameters.get('compute_eigen', 0)
     )
-
-    return model, dataset, view, sequences, feature_parameters, gt_args
+    training_config = config.get('training_config')
+    return model, dataset, view, sequences, training_config, feature_parameters, gt_args
 
 def initialize_model(modelname, shape, subsample_ratio=1):
     if modelname == 'lodnn':
@@ -114,7 +114,13 @@ def get_test_name(features_parameters):
     return test_name
 
 
-def train_model(modelname, feature_parameters, gt_args, view, dataset, sequences=None):
+def train_model(modelname,
+                training_config,
+                feature_parameters,
+                gt_args,
+                view,
+                dataset,
+                sequences=None):
     # todo: write a function that
     kpc = KITTIPointCloud(feature_parameters=feature_parameters,
                           is_training=True,
@@ -132,15 +138,6 @@ def train_model(modelname, feature_parameters, gt_args, view, dataset, sequences
     run_id = modelname + '_' + utils.get_unique_id()
     path = utils.create_run_dir(_RUN_PATH, run_id)
     callbacks = utils.get_basic_callbacks(path)
-
-    # All training params to be added here
-    training_config = {
-        "loss_function": "binary_crossentropy",
-        "learning_rate": 1e-4,
-        "batch_size": 3,
-        "epochs": 100,
-        "optimizer": "keras.optimizers.Nadam"  # "keras.optimizers.Nadam"
-    }
 
     # this is the augmentation configuration we will use for training
     dict_aug_args = dict(horizontal_flip=True)
@@ -237,5 +234,5 @@ if __name__ == "__main__":
 
     config_file = args.config_file
 
-    model, dataset, view, sequences, feature_parameters, gt_args = parse_config_file(config_file)
-    train_model(model, feature_parameters, gt_args, view, dataset, sequences)
+    model, dataset, view, sequences, training_config, feature_parameters, gt_args = parse_config_file(config_file)
+    train_model(model, training_config, feature_parameters, gt_args, view, dataset, sequences)
