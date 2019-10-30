@@ -4,75 +4,7 @@ from keras.models import Model
 from keras.layers import Conv2D, LeakyReLU, Input, Dropout, concatenate, \
     UpSampling2D, BatchNormalization, MaxPooling2D,  GlobalAveragePooling2D, Activation, SpatialDropout2D
 from keras import backend as K
-import larq as lq
 import tensorflow as tf
-
-def get_Q_lodnn_model(shape=(400,200, 6)):
-    '''
-    Returns LoDNN model.
-    Note: Instead of max-unpooling layer, deconvolution is used[see d_layer_01].
-    '''
-    model = tf.keras.Sequential([
-    lq.layers.QuantConv2D(32, 3, strides=(1, 1),
-                        padding='same', kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip", input_shape=shape), #activation='elu'
-
-    lq.layers.QuantConv2D(32, 3, strides=(1, 1),
-                        padding='same', kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.MaxPooling2D(pool_size=(2, 2), strides=2, padding='same'),
-
-    # context module
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(1, 1), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(2, 1), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(4, 2), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(8, 4), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(16, 8), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(32, 16), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(64, 32), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(32, 1, strides=1, padding='same',
-                        kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-
-    # decoder
-    lq.layers.QuantConv2DTranspose(32,3,strides=(2,2),padding='same'),
-    lq.layers.QuantConv2D(32, 1, strides=(1,1), padding='same', kernel_quantizer="ste_sign",
-                          kernel_constraint="weight_clip"), #activation='elu'
-    lq.layers.QuantConv2D(2, 3, strides=(1,1), padding='same', kernel_quantizer="ste_sign",
-                          kernel_constraint="weight_clip"), #activation='elu'
-    tf.keras.layers.Activation("softmax")
-    ])
-    return model
 
 def get_lodnn_model(shape=(400,200, 6)):
     ''' 
