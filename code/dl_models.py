@@ -4,81 +4,13 @@ from keras.models import Model
 from keras.layers import Conv2D, LeakyReLU, Input, Dropout, concatenate, \
     UpSampling2D, BatchNormalization, MaxPooling2D,  GlobalAveragePooling2D, Activation, SpatialDropout2D
 from keras import backend as K
-import larq as lq
-import tensorflow as tf
 
-def get_Q_lodnn_model(shape=(400,200, 6)):
-    '''
+
+def get_lodnn_model(shape=(400, 200, 6)):
+    """
     Returns LoDNN model.
     Note: Instead of max-unpooling layer, deconvolution is used[see d_layer_01].
-    '''
-    model = tf.keras.Sequential([
-    lq.layers.QuantConv2D(32, 3, strides=(1, 1),
-                        padding='same', kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip", input_shape=shape), #activation='elu'
-
-    lq.layers.QuantConv2D(32, 3, strides=(1, 1),
-                        padding='same', kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.MaxPooling2D(pool_size=(2, 2), strides=2, padding='same'),
-
-    # context module
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(1, 1), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(2, 1), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(4, 2), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(8, 4), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(16, 8), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(32, 16), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(128, 3, strides=(1, 1), padding='same',
-                        dilation_rate=(64, 32), kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-    tf.keras.layers.SpatialDropout2D(rate=0.25),
-    lq.layers.QuantConv2D(32, 1, strides=1, padding='same',
-                        kernel_quantizer="ste_sign",
-                        kernel_constraint="weight_clip"), #activation='elu'
-
-
-    # decoder
-    lq.layers.QuantConv2DTranspose(32,3,strides=(2,2),padding='same'),
-    lq.layers.QuantConv2D(32, 1, strides=(1,1), padding='same', kernel_quantizer="ste_sign",
-                          kernel_constraint="weight_clip"), #activation='elu'
-    lq.layers.QuantConv2D(2, 3, strides=(1,1), padding='same', kernel_quantizer="ste_sign",
-                          kernel_constraint="weight_clip"), #activation='elu'
-    tf.keras.layers.Activation("softmax")
-    ])
-    return model
-
-def get_lodnn_model(shape=(400,200, 6)):
-    ''' 
-    Returns LoDNN model.
-    Note: Instead of max-unpooling layer, deconvolution is used[see d_layer_01].
-    '''
+    """
     # encoder
     e_layer_01 = keras.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='elu', input_shape=shape)
     e_layer_02 = keras.layers.Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='elu')
@@ -141,6 +73,7 @@ def get_lodnn_model(shape=(400,200, 6)):
                    ])
     return model
 
+
 def get_unet_model(shape,
                    nb_filters_0=8,
                    exp=1,
@@ -157,91 +90,93 @@ def get_unet_model(shape,
 
     inputs = Input(shape)
 
-    drop = SpatialDropout2D(0.3)(inputs)
-
     conv1 = Conv2D(nb_filters_0, conv_size,
-                   activation=activation, padding='same', kernel_initializer=initialization)(drop)
+                   activation=activation, padding='same', kernel_initializer=initialization)(inputs)
 
-    batch1 = BatchNormalization(name='bn1')(conv1)
+    bn1 = BatchNormalization()(conv1)
 
-    pool1 = MaxPooling2D(pool_size=(1, 2))(batch1)
+    drop1 = SpatialDropout2D(0.5)(bn1)
+
+    pool1 = MaxPooling2D(pool_size=(1, 2))(drop1)
 
     conv2 = Conv2D(nb_filters_0 * 2 ** (1 * exp), conv_size,
                    activation=activation, padding='same', kernel_initializer=initialization)(pool1)
 
-    batch2 = BatchNormalization(name='bn2')(conv2)
+    bn2 = BatchNormalization()(conv2)
 
-    pool3 = MaxPooling2D(pool_size=(1, 2))(conv2)
+    drop2 = SpatialDropout2D(0.5)(bn2)
 
-    conv4 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
-                   activation=activation, padding='same', kernel_initializer=initialization)(pool3)
+    pool2 = MaxPooling2D(pool_size=(1, 2))(drop2)
 
-    drop4 = SpatialDropout2D(0.3)(conv4)
+    conv3 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
+                   activation=activation, padding='same', kernel_initializer=initialization)(pool2)
 
-    batch3 = BatchNormalization(name='bn3')(drop4)
+    bn3 = BatchNormalization()(conv3)
 
-    pool4 = MaxPooling2D(pool_size=(1, 2))(batch3)
+    drop3 = SpatialDropout2D(0.5)(bn3)
 
-    drop5 = SpatialDropout2D(0.3)(pool4)
+    pool3 = MaxPooling2D(pool_size=(1, 2))(drop3)
+
+    drop4 = SpatialDropout2D(0.5)(pool3)
+
+    up5 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
+                 activation=activation, padding='same',
+                 kernel_initializer=initialization)(UpSampling2D(size=(1, 2))(drop4))
+
+    merge5 = concatenate([drop3, up5], axis=channel_axis)
+
+    conv5 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
+                   activation=activation, padding='same', kernel_initializer=initialization)(merge5)
+
+    bn5 = BatchNormalization()(conv5)
 
     up6 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
                  activation=activation, padding='same',
-                 kernel_initializer=initialization)(UpSampling2D(size=(1, 2))(drop5))
+                 kernel_initializer=initialization)(UpSampling2D(size=(1, 2))(bn5))
 
-    merge6 = concatenate([drop4, up6], axis=channel_axis)
+    merge6 = concatenate([conv2, up6], axis=channel_axis)
 
-    conv6 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
+    conv6 = Conv2D(nb_filters_0 * 2 ** (1 * exp), conv_size,
                    activation=activation, padding='same', kernel_initializer=initialization)(merge6)
 
-    batch5 = BatchNormalization(name='bn5')(conv6)
+    bn6 = BatchNormalization()(conv6)
 
-    up7 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
+    up7 = Conv2D(nb_filters_0 * 2 ** (1 * exp), conv_size,
                  activation=activation, padding='same',
-                 kernel_initializer=initialization)(UpSampling2D(size=(1, 2))(batch5))
+                 kernel_initializer=initialization)(UpSampling2D(size=(1, 2))(bn6))
 
-    merge7 = concatenate([conv2, up7], axis=channel_axis)
+    merge7 = concatenate([conv1, up7], axis=channel_axis)
 
-    conv7 = Conv2D(nb_filters_0 * 2 ** (1 * exp), conv_size,
+    conv7 = Conv2D(nb_filters_0, conv_size,
                    activation=activation, padding='same', kernel_initializer=initialization)(merge7)
 
-    batch6 = BatchNormalization(name='bn6')(conv7)
-
-    up8 = Conv2D(nb_filters_0 * 2 ** (1 * exp), conv_size,
-                 activation=activation, padding='same',
-                 kernel_initializer=initialization)(UpSampling2D(size=(1, 2))(batch6))
-
-    merge8 = concatenate([conv1, up8], axis=channel_axis)
-
-    conv8 = Conv2D(nb_filters_0, conv_size,
-                   activation=activation, padding='same', kernel_initializer=initialization)(merge8)
-
-
-
     if subsample_ratio % 2 == 0:
-        conv8 = keras.layers.Conv2D(nb_filters_0, conv_size,
-                                    activation= activation,
-                                    padding='same',
-                                    kernel_initializer=initialization)(keras.layers.UpSampling2D(size=(2,1))(conv8))
-
-    if subsample_ratio % 4 == 0:
-        conv8 = keras.layers.Conv2D(nb_filters_0, conv_size,
+        conv7 = keras.layers.Conv2D(nb_filters_0, conv_size,
                                     activation=activation,
                                     padding='same',
-                                    kernel_initializer=initialization)(keras.layers.UpSampling2D(size=(2, 1))(conv8))
+                                    kernel_initializer=initialization)(keras.layers.UpSampling2D(size=(2, 1))(conv7))
 
-    conv9 = Conv2D(nb_filters_0, conv_size,
-                   activation=activation, padding='same', kernel_initializer=initialization)(conv8)
+    if subsample_ratio % 4 == 0:
+        conv7 = keras.layers.Conv2D(nb_filters_0, conv_size,
+                                    activation=activation,
+                                    padding='same',
+                                    kernel_initializer=initialization)(keras.layers.UpSampling2D(size=(2, 1))(conv7))
 
-    batch7 = BatchNormalization(name='bn7')(conv9)
+    bn7 = BatchNormalization()(conv7)
 
-    conv10 = Conv2D(output_channels, conv_size, padding='same', activation='sigmoid')(batch7)
+    conv8 = Conv2D(nb_filters_0, conv_size,
+                   activation=activation, padding='same', kernel_initializer=initialization)(bn7)
 
-    model = Model(inputs=inputs, outputs=conv10)
+    bn8 = BatchNormalization()(conv8)
+
+    conv9 = Conv2D(output_channels, conv_size, padding='same', activation='sigmoid')(bn8)
+
+    model = Model(inputs=inputs, outputs=conv9)
 
     return model
 
-# def get_unet_model(input_size = (400,200,6), subsample_ratio=1):
-#     inputs = keras.layers.Input(input_size)
+# def get_unet_model(shape = (400, 200, 6), subsample_ratio=1):
+#     inputs = keras.layers.Input(shape)
 #     conv1 = keras.layers.Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)
 #     pool1 = keras.layers.MaxPooling2D(pool_size=(1, 2))(conv1)
 #     conv2 = keras.layers.Conv2D(16, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool1)
@@ -277,7 +212,6 @@ def get_unet_model(shape,
 #     model = keras.models.Model(input = inputs, output = conv10)
 #
 #     return model
-
 
 def conv2dLeakyDownProj(layer_input, filters, output,f_size=3):
     d = Conv2D(filters, kernel_size=f_size, strides=(1, 2), padding='same')(layer_input)
