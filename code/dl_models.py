@@ -95,7 +95,7 @@ def get_unet_model(shape,
 
     bn1 = BatchNormalization()(conv1)
 
-    drop1 = SpatialDropout2D(0.5)(bn1)
+    drop1 = SpatialDropout2D(0.3)(bn1)
 
     pool1 = MaxPooling2D(pool_size=(1, 2))(drop1)
 
@@ -104,7 +104,7 @@ def get_unet_model(shape,
 
     bn2 = BatchNormalization()(conv2)
 
-    drop2 = SpatialDropout2D(0.5)(bn2)
+    drop2 = SpatialDropout2D(0.3)(bn2)
 
     pool2 = MaxPooling2D(pool_size=(1, 2))(drop2)
 
@@ -113,11 +113,11 @@ def get_unet_model(shape,
 
     bn3 = BatchNormalization()(conv3)
 
-    drop3 = SpatialDropout2D(0.5)(bn3)
+    drop3 = SpatialDropout2D(0.3)(bn3)
 
     pool3 = MaxPooling2D(pool_size=(1, 2))(drop3)
 
-    drop4 = SpatialDropout2D(0.5)(pool3)
+    drop4 = SpatialDropout2D(0.3)(pool3)
 
     up5 = Conv2D(nb_filters_0 * 2 ** (2 * exp), conv_size,
                  activation=activation, padding='same',
