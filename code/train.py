@@ -77,7 +77,7 @@ def generate_features_map(config_run):
     """
 
     features_parameters = config_run.get('features')
-    gt_args = config_run.get('gt_arg')
+    gt_args = config_run.get('gt_arg', {})
     dataset = config_run.get('dataset')
     view = config_run.get('view')
     sequences = config_run.get('sequences')
@@ -110,7 +110,8 @@ def store_features_map(save_path, feature_maps):
     feature_maps: tuple
         f_train, gt_train, f_valid, gt_valid
     """
-
+    # if save_path dir does not exists we create it
+    os.makedirs(save_path, exist_ok=True)
     f_train, gt_train, f_valid, gt_valid = feature_maps
 
     np.savez(os.path.join(save_path, 'f_train.npz'), **{'data': f_train})
@@ -379,6 +380,10 @@ def run_training(features_maps, config_run):
     config_run: dict
     """
     f_train, gt_train, f_valid, gt_valid = features_maps
+    print("Train set: features map shape --> ", f_train.shape)
+    print("Train set: ground truth shape --> ", gt_train.shape)
+    print("Validation Set: features map shape --> ", f_valid.shape)
+    print("Validation Set: ground truth shape --> ", gt_valid.shape)
     training_config = config_run.get('training_config')
     features = config_run.get('features')
     subsample_ratio = features['subsample_ratio']
