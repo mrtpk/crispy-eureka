@@ -135,7 +135,7 @@ class KITTIPointCloud:
 
             if self.dataset == 'kitti':
                 gt_train_data_list = self.train_set[gt_key]
-                gt_valid_data_list = self.train_set[gt_key]
+                gt_valid_data_list = self.valid_set[gt_key]
             else:
                 gt_train_data_list = [[i1, i2] for i1, i2 in zip(self.train_set['pc'], self.train_set['labels'])]
                 gt_valid_data_list = [[i1, i2] for i1, i2 in zip(self.valid_set['pc'], self.valid_set['labels'])]
@@ -147,7 +147,12 @@ class KITTIPointCloud:
         else:
             f_test = self.load_pc_and_get_features(self.test_set["pc"], limit_index)
 
-            gt_test = self.fetch_gt(self.test_set[gt_key], limit_index, **gt_args)
+            if self.dataset == 'kitti':
+                gt_test_data_list = self.test_set[gt_key]
+            else:
+                gt_test_data_list = [[i1, i2] for i1, i2 in zip(self.test_set['pc'], self.test_set['labels'])]
+
+            gt_test = self.fetch_gt(gt_test_data_list, limit_index, **gt_args)
 
             return np.array(f_test), np.array(gt_test)
 
