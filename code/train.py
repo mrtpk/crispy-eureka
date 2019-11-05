@@ -3,6 +3,7 @@ import os
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
+import copy
 import json
 import keras  # this is required
 from keras.preprocessing.image import ImageDataGenerator
@@ -26,6 +27,7 @@ RESCALE_VALUES = {
     'COUNT_MAX': -1
 }
 
+
 def get_features_map(config_run, force_compute):
     """
     Parameters
@@ -48,7 +50,7 @@ def get_features_map(config_run, force_compute):
             f_train, gt_train, f_valid, gt_valid = load_features_maps_from_file(basedir, features_parameters, view)
         else:
             f_train, gt_train, f_valid, gt_valid = generate_features_map(config_run)
-
+            store_features_map(basedir, (f_train, gt_train, f_valid, gt_valid))
 
     return f_train, gt_train, f_valid, gt_valid
 
@@ -97,26 +99,19 @@ def generate_features_map(config_run):
     return f_train, gt_train, f_valid, gt_valid
 
 
-def store_features_map(basedir, config_run):
+def store_features_map(save_path, feature_maps):
     """
     Function that generates and store training and validation set features and ground truth images.
 
     Parameters
     ----------
-    basedir: str
+    save_path: str
 
-    config_run: dict
-        dictionary containing all the information about the run
-
+    feature_maps: tuple
+        f_train, gt_train, f_valid, gt_valid
     """
-    features_parameters = config_run['feature_parameters']
-    dataset = config_run['dataset']
-    view = config_run['view']
 
-    layer_dir = str(64 // features_parameters['subsample_ratio'])
-    save_path = os.path.join(basedir, dataset, view, layer_dir)
-    os.makedirs(save_path, exist_ok=True)
-    f_train, gt_train, f_valid, gt_valid = generate_features_map(config_run)
+    f_train, gt_train, f_valid, gt_valid = feature_maps
 
     np.savez(os.path.join(save_path, 'f_train.npz'), **{'data': f_train})
     np.savez(os.path.join(save_path, 'f_valid.npz'), **{'data': f_valid})
@@ -184,7 +179,7 @@ def load_features_maps_from_file(pathdir, features, view):
     return f_train, gt_train, f_valid, gt_valid
 
 
-def parse_config_file(config_filename):
+def parse_config_file(config_filename) -> dict:
     """
     helper function that parse the config file and return the paramters for the training
     Parameters
@@ -218,7 +213,7 @@ def parse_config_file(config_filename):
     gt_args = json_config.get('gt_args', None)
     store_features_basedir = json_config.get('store_features_basedir', None)
     training_config = json_config.get('training_config')
-
+    experiments = json_config.get('experiments', None)
     if sequences is not None:
         sequences = ['{:02}'.format(i) for i in sequences]
 
@@ -241,10 +236,51 @@ def parse_config_file(config_filename):
                       sequences=sequences,
                       features_basedir=features_basedir,
                       training_config=training_config,
+                      experiments=experiments,
                       features=features,
                       gt_args=gt_args)
 
     return config_run
+
+
+def generate_feature_config(experiment_name, config_run) -> dict:
+    """
+    Function that generate the config dictionary to run experiment
+
+    Parameters
+    ----------
+    experiment_name: str
+        name of the experiment for which we want to generate the feature dict
+
+    config_run: dict
+        current config_run dictionary containing all the information about the values for the parameters
+
+    Returns
+    -------
+    d: dict
+        dictionary containing the configuration to run the current experiment
+    """
+    d = copy.deepcopy(config_run)
+    base_feat = d.get('features')
+    features = dict(
+        compute_classic=False,
+        add_geometrical_features=False,
+        subsample_ratio=base_feat.get('subsample_ratio', 1),
+        compute_eigen=0
+    )
+
+    if 'classic' in experiment_name.lower():
+        features['compute_classic'] = True
+
+    if 'geometry' in experiment_name.lower():
+        features['add_geometrical_features'] = True
+
+    if 'eigen' in experiment_name.lower():
+        features['compute_eigen'] = base_feat.get('compute_eigen')
+
+    d['features'] = features
+
+    return d
 
 
 def initialize_model(modelname, shape, subsample_ratio=1):
@@ -351,6 +387,7 @@ def run_training(features_maps, config_run):
     modelname = config_run.get('model')
 
     print(RESCALE_VALUES)
+    print("Running ", test_name)
     experiment_name = 'experiment0'  # name of experiment
     # It is better to create a folder with runid in the experiment folder
     _EXP, _LOG, _TMP, _RUN_PATH = dls.create_dir_struct('../', experiment_name)
@@ -424,13 +461,35 @@ def run_training(features_maps, config_run):
         json.dump(result, f)
 
 
-def train_model(config_file, compute_features=False):
+def train_model(config_filename, compute_features=False):
 
-    config_run = parse_config_file(config_file)
+    config_run = parse_config_file(config_filename)
+    # load the features map for the current experiment
+    features_basedir = config_run.get('features_basedir')
+    # checking if the features_map for this set of experiments has already been computed
+    exists = os.path.isfile(os.path.join(features_basedir, 'gt_train.npz'))
 
-    features_maps = get_features_map(config_run, compute_features)
+    if not exists:  # if not we compute and store them
+        features_maps = get_features_map(config_run, compute_features)
+    else:
+        features_maps = None
 
-    run_training(features_maps, config_run)
+    experiments = config_run.get('experiments')
+
+    if experiments is None:
+        if features_maps is None:
+            features_maps = get_features_map(config_run, compute_features)
+
+        run_training(features_maps, config_run)
+    else:
+        # iterate over all possible experiments and run them
+        for e in experiments:
+            config_exp = generate_feature_config(e, config_run)
+            features = config_exp.get('features')
+            view = config_exp.get('view')
+            features_maps = load_features_maps_from_file(features_basedir, features, view)
+            # run current experiment
+            run_training(features_maps, config_exp)
 
 
 if __name__ == "__main__":
@@ -457,6 +516,6 @@ if __name__ == "__main__":
     run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
     config_file = args.config_file
-    compute_features = args.features
+    force_compute_features = args.features
 
-    train_model(config_file, compute_features)
+    train_model(config_file, force_compute_features)
