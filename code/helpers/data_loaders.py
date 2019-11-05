@@ -267,13 +267,26 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
     """
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
 
-def load_pyntcloud(filename):
+def load_pyntcloud(filename, add_label=False):
     points = load_bin_file(filename)
     cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
+    if add_label:
+        labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'))
+        cloud.points['labels'] = labels
+
     return cloud
 
-def load_semantic_kitt_config(filename=""):
-
+def load_semantic_kitti_config(filename=""):
+    """
+    Function that load configuration file of semantic kitti dataset
+    Parameters
+    ----------
+    filename: str
+        file to load
+    Returns
+    -------
+    config: dict
+    """
     if len(filename) == 0:
         local_path = os.path.dirname(os.path.abspath(__file__))
         filename = os.path.join(local_path, '..', 'semantic-kitti-api','config','semantic-kitti.yaml')
