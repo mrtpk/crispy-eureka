@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pyntcloud import PyntCloud
 from helpers.data_loaders import process_list, get_dataset, get_semantic_kitti_dataset, load_pc, load_bin_file
-from helpers.data_loaders import load_label_file, load_semantic_kitt_config
+from helpers.data_loaders import load_label_file, load_semantic_kitti_config
 from helpers.pointcloud import filter_points
 from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
@@ -63,7 +63,7 @@ class KITTIPointCloud:
             self.side_range = (-10, 10)
             self.fwd_range = (6, 46)
         else:
-            self.config = load_semantic_kitt_config()
+            self.config = load_semantic_kitti_config()
             self.num_classes = len(self.config['labels'].keys())
             self.max_label = max(self.config['labels'].keys()) + 1
             label_map = np.zeros(self.max_label)
@@ -82,7 +82,7 @@ class KITTIPointCloud:
                 self.aux_proj = Projection(proj_type='front', height=aux_height, width=1024)
 
         elif self.view == 'front':
-            self.proj_W = 1024
+            self.proj_W = 1024 if self.dataset == 'kitti' else 2048
             self.proj_H = 64 // self.subsample_ratio
 
             self.proj = Projection(proj_type='front', height=self.proj_H, width=self.proj_W)
@@ -163,7 +163,8 @@ class KITTIPointCloud:
         limit_index: int
             index of max element of list to treat
 
-        Returns:
+        Returns
+        -------
         features_map: ndarray
             array of features maps generated from input point cloud
         """
@@ -196,7 +197,9 @@ class KITTIPointCloud:
                 pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range,
                                                                   'fwd_range': self.fwd_range})
 
-        return process_list(pc_list, self.get_features)
+        features_map = process_list(pc_list, self.get_features)
+
+        return features_map
 
     def get_features(self, point_cloud):
         """
@@ -378,8 +381,6 @@ class KITTIPointCloud:
         """
         Function that load the ground truth image and return the one-hot encoded ground truth image
 
-        # TODO: FILL THE FOLLOWING FUNCTION
-
         Parameters
         ----------
         filename: str
@@ -419,6 +420,34 @@ class KITTIPointCloud:
     def fetch_gt(self, file_list, limit_index, **kwargs):
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
         return process_list(file_list[:max_id], self.load_gt, **kwargs)
+
+
+class SemanticKittiConfig:
+    """
+    Class that load the semantic kitti config file and helps to handle class ids
+    """
+    def __init__(self, config_file):
+        """
+        Parameters
+        ----------
+        config_file: str to config file
+        """
+        self.config_file = config_file
+        self.config = load_semantic_kitti_config(config_file)
+        labels, id2label = self._remap_classes()
+        self.labels = labels
+        self.id2label = id2label
+
+    def _remap_classes(self):
+        labels = np.array(list(self.config['labels'].keys()))
+
+        # this vector is the inverse function of labels array, i.e. labels[id_label_map[labels]] = labels
+        id_label_map = -np.ones(labels.max() + 1, dtype=np.int)
+
+        for n, l in enumerate(labels):
+            id_label_map[l] = n
+
+        return labels, id_label_map
 
 
 def get_z(points):
