@@ -1,8 +1,8 @@
 {
   "store_features_basedir": "features",
-  "model": "unet",
-  "dataset": "semantickitti",
-  "view": "front",
+  "model": "lodnn",
+  "dataset": "kitti",
+  "view": "bev",
   "parameters":{
     "compute_classic": "True",
     "add_geometrical_features": "True",

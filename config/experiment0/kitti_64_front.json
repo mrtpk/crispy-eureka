@@ -1,7 +1,7 @@
 {
   "store_features_basedir": "features",
   "model": "unet",
-  "dataset": "semantickitti",
+  "dataset": "kitti",
   "view": "front",
   "parameters":{
     "compute_classic": "True",

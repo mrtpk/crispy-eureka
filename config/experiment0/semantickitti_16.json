@@ -6,7 +6,7 @@
   "parameters":{
     "compute_classic": "True",
     "add_geometrical_features": "True",
-    "subsample_ratio": 1,
+    "subsample_ratio": 4,
     "compute_eigen": 100
   },
   "experiments": ["classic", "classic+geometry", "classic+eigen","classic+geometry+eigen"],
