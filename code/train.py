@@ -8,6 +8,7 @@ import json
 import keras  # this is required
 from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
+
 from keras import backend as k
 from keras_custom_loss import binary_focal_loss  # weightedLoss2
 # cyclic lr
@@ -77,7 +78,7 @@ def generate_features_map(config_run):
     """
 
     features_parameters = config_run.get('features')
-    gt_args = config_run.get('gt_arg', {})
+    gt_args = config_run.get('gt_args', {})
     dataset = config_run.get('dataset')
     view = config_run.get('view')
     sequences = config_run.get('sequences')
@@ -389,6 +390,7 @@ def run_training(features_maps, config_run):
     subsample_ratio = features['subsample_ratio']
     test_name = get_test_name(features)
     view = config_run.get('view')
+    dataset = config_run.get('dataset')
     modelname = config_run.get('model')
 
     print(RESCALE_VALUES)
@@ -455,7 +457,8 @@ def run_training(features_maps, config_run):
     result = {"name": experiment_name,
               "test_name": test_name,
               "run_id": run_id,
-              "dataset": "KITTI",
+              "dataset": dataset,
+              "features": features,
               "training_config": training_config,
               "z_min": str(RESCALE_VALUES['z_min']),
               "z_max": str(RESCALE_VALUES['z_max']),
@@ -492,6 +495,7 @@ def train_model(config_filename, compute_features=False):
             config_exp = generate_feature_config(e, config_run)
             features = config_exp.get('features')
             view = config_exp.get('view')
+            print(config_exp)
             features_maps = load_features_maps_from_file(features_basedir, features, view)
             # run current experiment
             run_training(features_maps, config_exp)
