@@ -86,6 +86,7 @@ class KITTIPointCloud:
             self.proj_H = 64 // self.subsample_ratio
 
             self.proj = Projection(proj_type='front', height=self.proj_H, width=self.proj_W)
+            self.aux_proj = Projection(proj_type='front', height=64, width=self.proj_W)
 
         self.number_of_grids = self.proj_H * self.proj_W
 
@@ -408,18 +409,17 @@ class KITTIPointCloud:
             label_filename = filename[1]
             labels = load_label_file(label_filename)
             points = load_bin_file(pc_filename)
-            #
             # classes should be a list containing classes that we want to isolate for binary segmentation
             classes = kwargs.get('classes', None)
             if classes is not None:
                 # binary class classification
                 out = [labels == int(c) for c in classes]
                 labels = sum(out)
-                img = self.proj.project_points_values(points, labels)
+                img = self.aux_proj.project_points_values(points, labels)
                 return np.atleast_3d(img)
             else:
                 # multiclass classification
-                img = self.proj.project_points_values(points, labels)
+                img = self.aux_proj.project_points_values(points, labels)
                 return keras.utils.to_categorical(self.label_map[img.astype(int)], num_classes=self.num_classes)
 
     def fetch_gt(self, file_list, limit_index, **kwargs):
