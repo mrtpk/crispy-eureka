@@ -3,8 +3,10 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import json
-import utils
+from time import time
+from data import *
 import dl_models
+from helpers.data_loaders import get_semantic_kitti_dataset, get_dataset, load_pc, process_calib, load_img, process_list, process_img
 from helpers.timer import timer
 from helpers.viz import plot_confusion_matrix, ConfusionMatrix
 from sklearn.metrics import confusion_matrix, precision_recall_curve, average_precision_score
@@ -17,8 +19,29 @@ from keras.optimizers import *
 from keras_custom_loss import jaccard2_loss
 
 
+def plot_features_map(x, y, geom=False, figsize=(8,8)):
+    nr, nc, nz = x.shape
+
+    if geom:
+        num_fig = nz - 1
+    else:
+        num_fig = nz + 1
+
+    _, ax = plt.subplots(num_fig, 1, figsize=figsize)
+
+    for i in range(num_fig):
+        if geom and i == num_fig - 2:
+            ax[i].imshow(x[:, :, -3:])
+        elif i == num_fig - 1:
+            ax[i].imshow(y[: , :,0])
+        else:
+            ax[i].imshow(x[:,:,i])
+        # ax[i].axes('off')
+
+    plt.show()
+
 class Experiment:
-    def __init__(self, weights, model_name='unet', view='front', plot_result_flag=False, dataset='semantickitti'):
+    def __init__(self, path, weights, model_name='unet', view='front', plot_result_flag=False, dataset='semantickitti', sequences=None):
         self.input = dict(
             model_name=model_name,
             weights=weights,
@@ -26,91 +49,237 @@ class Experiment:
             plot_result_flag=plot_result_flag,
             dataset=dataset)
 
+        self.model_name = model_name
+        self.view = view
+        self.weights = weights
+        self.dataset = dataset
         weights_dir = os.path.abspath(os.path.dirname(weights))
         weights_par_dir = os.path.abspath(os.path.join(weights_dir, os.pardir))
-        self.test_name = self.__get_test_name(os.path.join(weights_par_dir, 'details.json'))
+        self.details = self.__load_details(os.path.join(weights_par_dir, 'details.json'))
 
-    def __get_test_name(self, filename):
+        self.test_name = self.details['test_name'].lower()
+
+        self.geometric, self.hog, self.sampled, self.sampled_ratio, \
+        self.eigen, self.n_channels = self.get_info_from_test_name()
+
+        self.feature_parameters = self.details.get('features', None)
+        if self.feature_parameters is None:
+            self.feature_parameters = dict(
+                compute_classic=True,
+                add_geometrical_features=self.geometric,
+                subsample_ratio=self.sampled_ratio,
+                compute_eigen=self.eigen,
+                model_name=self.model_name
+            )
+        self.sampled_ratio = self.feature_parameters['subsample_ratio']
+        self.model = self.__initialize_model()
+
+        self.feature_parameters['z_max'] = float(self.details['z_max'])
+        self.feature_parameters['z_min'] = float(self.details['z_min'])
+        if self.view == 'bev':
+            self.feature_parameters['COUNT_MAX'] = int(float(self.details['COUNT_MAX']))
+
+        self.path = path
+        if sequences is None and self.view != 'kitti':
+            sequences = ['08']
+
+        KPC = KITTIPointCloud(feature_parameters=self.feature_parameters,
+                              path=self.path,
+                              sequences=sequences,
+                              is_training=False,
+                              view=self.view,
+                              dataset=self.dataset)
+        self.KPC = KPC
+
+
+    def __initialize_model(self):
+        shape = (None, None, self.n_channels)
+        if self.model_name == 'lodnn':
+            model = dl_models.get_lodnn_model(shape=shape)
+        elif self.model_name == 'unet':
+            if self.dataset == 'kitti':
+                output_channels = 2
+            else:
+                output_channels = 1
+
+            model = dl_models.get_unet_model(shape=shape, subsample_ratio=self.sampled_ratio, output_channels=output_channels)
+        elif self.model_name == 'unet6':
+            model = dl_models.u_net6(shape=shape,
+                                     filters=512,
+                                     int_space=32,
+                                     output_channels=2)
+        else:
+            raise ValueError("model_name nor lodnn neither unet")
+
+        model.summary()
+
+        model.load_weights(self.weights)
+        training_config = self.details['training_config']
+        # retrieve optimizer
+        optimizer = eval(training_config["optimizer"])(lr=training_config["learning_rate"])
+
+        # compile model
+        model.compile(loss=jaccard2_loss,
+                      optimizer=optimizer,
+                      metrics=['accuracy'])
+
+        return model
+
+    def __load_details(self, filename):
         with open(filename) as f:
             d = json.load(f)
 
-        return d['test_name']
+        return d
 
-    def run_pred(self):
-        output = evaluate_model(**self.input)
-        for k in output.keys():
-            setattr(self, k, output[k])
+    def _fetch_data(self, test_set):
+        """
+        This reads the whole dataset into memory
+        """
+        print('Reading cloud')
+        f_test = load_pc(test_set["pc"][0:])
 
-    def save_predictions(self, ids):
+        if self.hog:
+            print('Reading calibration files')
+            cal_test = process_calib(test_set["calib"][0:])
+
+            print('Reading camera images')
+            cam_img_test = load_img(test_set["imgs"][0:])
+
+        if self.sampled:
+            print('Read and Subsample cloud')
+            t = time()
+            f_test = process_list(f_test, subsample_pc, sub_ratio=self.sampled_ratio)
+            print('Evaluated in : ' + repr(time() - t))
+
+        print('Extracting features')
+        t = time()
+
+        if self.hog:
+              f_cam_calib_test = [(f_t, img, calib) for f_t, img, calib in zip(f_test, cam_img_test, cal_test)]
+        else:
+            f_cam_calib_test = zip(f_test, len(f_test) * [None], len(f_test) * [None])
+
+        f_test = process_list(f_cam_calib_test, self.KPC.get_features)
+
+        print('Evaluated in : ' + repr(time() - t))
+
+        gt_key = 'gt_bev' if self.view == 'bev' else 'gt_front'
+        gt_test = process_img(test_set[gt_key][0:], func=lambda x: data.kitti_gt(x))
+
+        return np.array(f_test), np.array(gt_test)
+
+
+    def load_dataset(self, test_set=None):
+        if test_set is None:
+            test_set = self.KPC.test_set
+        f_test, gt_test = self._fetch_data(test_set)
+
+        return f_test, gt_test
+
+    def get_info_from_test_name(self):
+        '''
+        Functions that reads the details.json file and return the number of features used during training, and if
+        the point cloud has been sampled
+        '''
+        n_channels = 6 if self.view == 'bev' else 3
+        n_channels = 0 if 'classic' not in self.test_name else n_channels
+        geometric = False
+        if 'geometric' in self.test_name:
+            geometric = True
+            n_channels += 3
+
+        hog = False
+        if 'hog' in self.test_name:
+            hog = True
+            n_channels += 6
+
+        sampled = False
+        sampled_ratio = 1
+        if 'sampled' in self.test_name:
+            sampled = True
+            if '32' in self.test_name:
+                sampled_ratio = 2
+            if '16' in self.test_name:
+                sampled_ratio = 4
+        eigen = 0
+        if 'eigen' in self.test_name:
+            eigen = 100  # TODO: take it from config file
+            n_channels += 6
+
+        return geometric, hog, sampled, sampled_ratio, eigen, n_channels
+
+
+    def run_pred(self, f_test, save_res=False):
+        # image shape
+        n_row, n_col, n_channels = f_test.shape[1:]
+
+        if 'unet' in self.model_name:
+            multiple_of = 16 if self.model_name == 'unet' else 32
+            nrpad = multiple_of - (n_row % multiple_of) if (n_row % multiple_of) != 0 else 0
+            ncpad = multiple_of - (n_col % multiple_of) if (n_col % multiple_of) != 0 else 0
+
+            f_test = np.pad(f_test, ((0, 0), (0, nrpad), (0, ncpad), (0, 0)), 'constant')
+
+
+        pred, times = predict_test_set(self.model, f_test)
+
+        pred = pred[:, :(self.sampled_ratio * n_row), :n_col, :]  # setting same dimension as before
+
+        return pred, times
+
+    def save_predictions(self, gt, pred, ids):
         for i in ids:
-            self.plot_prediction(i, save_fig=True)
+            plot_prediction(gt, pred, i, save_fig=True, filename=self.test_name)
 
-    def plot_prediction(self, n=-1, save_fig=False):
-        if n < 0:
-            n = np.random.randint(len(self.gt_test))
-        print(n)
-
-        plt.style.use('classic')
-        f, ax = plt.subplots(3, 1, figsize=(20, 7))
-        ax[0].imshow(self.gt_test[n, :, :, 0])
-        ax[0].set_title('Ground Truth {:04}'.format(n))
-        ax[0].axis('off')
-        ax[1].imshow(self.pred[n, :, :, 0])
-        ax[1].set_title('Road class heatmap {:04}'.format(n))
-        ax[1].axis('off')
-        threshold = 0.5
-        ax[2].imshow((self.pred[n] > threshold)[:, :, 0])
-        ax[2].set_title('Prediction {:04} with threshold={}'.format(n, threshold))
-        ax[2].axis('off')
-        if save_fig:
-            plt.tight_layout()
-            plt.savefig('pred/pred_{}{:04}.png'.format(self.test_name, n), dpi=90)
-
-        plt.show()
-
-    def plot_features_map(self, n):
-        nr, nc, nz = self.f_test.shape
-        if nz == 6:
-            _, ax = plt.subplots(6, 1)
-        elif nz > 6:
-            _, ax = plt.subplots(7, 1)
-        ax[0].imshow(self.f_test[:, :, 0], alpha=0.9)
-        ax[0].set_title('Mean Count')
-        ax[1].imshow(self.f_test[:, :, 1], alpha=0.9)
-        ax[1].set_title('Mean Reflectance')
-        ax[2].imshow(self.f_test[:, :, 2], alpha=0.9)
-        ax[2].set_title('Max Elevation')
-        ax[3].imshow(self.f_test[:, :, 3], alpha=0.9)
-        ax[3].set_title('Min Elevation')
-        ax[4].imshow(self.f_test[:, :, 4], alpha=0.9)
-        ax[4].set_title('Mean Elevation')
-        ax[5].imshow(self.f_test[:, :, 5], alpha=0.9)
-        ax[5].set_title('Std Elevation')
-        if nz > 6:
-            ax[6].imshow(self.f_test[:, :, 6:], alpha=0.9)
-            ax[6].set_title('Mean Normals')
-        plt.show()
-
-    def precision_recall_curve(self, return_f1=False):
-        gt_flatten = self.gt_test[:, :, :, 0].flatten()
-        pred_flatten = self.pred[:, :, :, 0].flatten()
+    @staticmethod
+    def precision_recall_curve(gt, pred, return_f1=False):
+        gt_flatten = gt[:, :, :, 0].flatten()
+        pred_flatten = pred[:, :, :, 0].flatten()
         prec, rec, thresholds = precision_recall_curve(gt_flatten, pred_flatten)
         f1_scores = (2 * (prec*rec)/ (prec + rec))
         best_f1 = f1_scores.max()
         imax = f1_scores.argmax()
-        print("Scores test {}: Best F1: {}, Rec: {}, Prec: {}, threshold: {}".format(self.test_name, best_f1, rec[imax],
+        print("Scores test: Best F1: {}, Rec: {}, Prec: {}, threshold: {}".format(best_f1, rec[imax],
                                                                                      prec[imax], thresholds[imax]))
         if return_f1:
             return prec, rec, best_f1
 
         return prec, rec
 
-    def average_precision_score(self):
-        gt_flatten = self.gt_test[:, :, :, 0].flatten()
-        pred_flatten = self.pred[:, :, :, 0].flatten()
+    @staticmethod
+    def average_precision_score(gt, pred):
+        gt_flatten = gt[:, :, :, 0].flatten()
+        pred_flatten = pred[:, :, :, 0].flatten()
         score = average_precision_score(gt_flatten, pred_flatten)
 
         return score
+
+def plot_prediction(gt, pred, n=-1, save_fig=False, filename=''):
+    if n < 0:
+        n = np.random.randint(len(gt))
+    print(n)
+
+    plt.style.use('classic')
+    f, ax = plt.subplots(3, 1, figsize=(20, 7))
+    ax[0].imshow(gt[n, :, :, 0])
+    ax[0].set_title('Ground Truth {:04}'.format(n))
+    ax[0].axis('off')
+    ax[1].imshow(pred[n, :, :, 0])
+    ax[1].set_title('Road class heatmap {:04}'.format(n))
+    ax[1].axis('off')
+    threshold = 0.5
+    ax[2].imshow((pred[n] > threshold)[:, :, 0])
+    ax[2].set_title('Prediction {:04} with threshold={}'.format(n, threshold))
+    ax[2].axis('off')
+
+    if save_fig:
+        plt.tight_layout()
+        plt.savefig('pred/pred_{}{:04}.png'.format(filename, n), dpi=90)
+
+    plt.show()
+
+def store_npz(filename, arrays):
+    np.savez(filename, **arrays)
 
 
 def remove_bg(gt_train):
@@ -129,8 +298,6 @@ def load_dataset(add_geometrical_features=True,
     PATH = '../'  # path of the repo.
     _NAME = 'experiment0'  # name of experiment
     sequences = None
-    if dataset != 'kitti':
-        sequences =['03','04', '08']
     # create dataclass
     KPC = utils.KittiPointCloudClass(dataset_path=PATH,
                                      add_geometrical_features=add_geometrical_features,
@@ -141,6 +308,7 @@ def load_dataset(add_geometrical_features=True,
                                      subsample_ratio=subsample_ratio,
                                      dataset=dataset,
                                      sequences=sequences)
+
 
     f_train, f_valid, f_test, gt_train, gt_valid, gt_test = KPC.get_dataset()
     gt_test = remove_bg(gt_test)
@@ -173,7 +341,6 @@ def get_info_from_test_name(filename):
             sampled_ratio = 2
         if '16' in test_name:
             sampled_ratio = 4
-    
     eigen = 0
     if 'eigen' in test_name:
         eigen = 100 # TODO: take it from config file
