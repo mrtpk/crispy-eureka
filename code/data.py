@@ -63,14 +63,8 @@ class KITTIPointCloud:
             self.side_range = (-10, 10)
             self.fwd_range = (6, 46)
         else:
-            self.config = load_semantic_kitti_config()
-            self.num_classes = len(self.config['labels'].keys())
-            self.max_label = max(self.config['labels'].keys()) + 1
-            label_map = np.zeros(self.max_label)
-            for n, k in enumerate(self.config['labels'].keys()):
-                label_map[k] = n
-
-            self.label_map = label_map
+            self.config = SemanticKittiConfig("")
+            self.num_classes = self.config.labels2id.max() + 1
 
         if self.view == 'bev':
             # TODO: complete this part
@@ -79,14 +73,17 @@ class KITTIPointCloud:
             self.proj = Projection(proj_type='bev', height=self.proj_H, width=self.proj_W, res=0.1)
             if self.add_geometrical_features:
                 aux_height = 64 // self.subsample_ratio
-                self.aux_proj = Projection(proj_type='front', height=aux_height, width=1024)
+                self.aux_proj = Projection(proj_type='laser', height=aux_height, width=1024)
+                # self.aux_proj = Projection(proj_type='front', height=aux_height, width=1024)
 
         elif self.view == 'front':
             self.proj_W = 1024 if self.dataset == 'kitti' else 2048
             self.proj_H = 64 // self.subsample_ratio
 
-            self.proj = Projection(proj_type='front', height=self.proj_H, width=self.proj_W)
-            self.aux_proj = Projection(proj_type='front', height=64, width=self.proj_W)
+            self.proj = Projection(proj_type='laser', height=self.proj_H, width=self.proj_W)
+            # self.proj = Projection(proj_type='front', height=self.proj_H, width=self.proj_W)
+            self.aux_proj = Projection(proj_type='laser', height=64, width=self.proj_W)
+            # self.aux_proj = Projection(proj_type='front', height=64, width=self.proj_W)
 
         self.number_of_grids = self.proj_H * self.proj_W
 
@@ -176,6 +173,7 @@ class KITTIPointCloud:
         """
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
         pc_list = load_pc(file_list[:max_id])
+        pc_list = process_list(pc_list, add_layers)
 
         if self.subsample_ratio > 1:
             pc_list = process_list(pc_list, subsample_pc, sub_ratio=self.subsample_ratio)
@@ -243,8 +241,9 @@ class KITTIPointCloud:
                 feat = np.dstack([feat, normals])
 
         if self.compute_eigen:
+            layers = (point_cloud[:, -1] // self.subsample_ratio).astype(int)
             eigen = self.get_eigen_features(point_cloud)
-            eigen_map = self.proj.project_points_values(point_cloud, eigen, aggregate_func='mean')
+            eigen_map = self.proj.project_points_values(point_cloud, eigen, aggregate_func='mean', layers=layers)
             if feat is not None:
                 feat = np.dstack([feat, eigen_map])
 
@@ -301,9 +300,11 @@ class KITTIPointCloud:
             # normalize o_count
             feat_maps[:, :, 0] = feat_maps[:, :, 0] / self.COUNT_MAX
         else:
+
+            layers = (points[:, -1] // self.subsample_ratio).astype(int)
             rho = np.linalg.norm(points[:, :3], axis=1)
             features = np.c_[rho, r, norm_z_lidar]
-            feat_maps = self.proj.project_points_values(points[:, :3], features, aggregate_func=['max', 'mean', 'min'])
+            feat_maps = self.proj.project_points_values(points[:, :3], features, aggregate_func=['max', 'mean', 'min'], layers=layers)
 
             # renormalize rho values
             feat_maps[:, :, 0] = feat_maps[:, :, 0] / 85
@@ -331,15 +332,25 @@ class KITTIPointCloud:
         # compute distance from scanner
         rho = np.linalg.norm(points[:, :3], axis=1)
 
-        rho_img = projector.project_points_values(points[:, :3], rho, aggregate_func='min')
+        layers = (points[:, -1] // self.subsample_ratio).astype(int)
+
+        rho_img = projector.project_points_values(points[:, :3], rho, aggregate_func='min', layers=layers)
 
         cl_img = closing(rho_img, square(3))
 
         rho_img[rho_img == 0] = cl_img[rho_img == 0]
 
         yaw_axis = np.linspace(0, 2*np.pi, width)
+        # pitch_axis = np.linspace(self.fov_up, self.fov_down, height)
 
-        pitch_axis = np.linspace(self.fov_up, self.fov_down, height)
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+        pitch = np.arccos(z / np.sqrt(x ** 2 + y ** 2))
+        pitch_axis = np.zeros(height)
+
+        for n in range(height):
+            pitch_axis[n] = pitch[layers == n].mean()
 
         normals = estimate_normals_from_spherical_img(rho_img, yaw=yaw_axis, pitch=pitch_axis, res_rho=1.0)
 
@@ -409,18 +420,19 @@ class KITTIPointCloud:
             label_filename = filename[1]
             labels = load_label_file(label_filename)
             points = load_bin_file(pc_filename)
+            layers = retrieve_layers(points)
             # classes should be a list containing classes that we want to isolate for binary segmentation
             classes = kwargs.get('classes', None)
             if classes is not None:
                 # binary class classification
                 out = [labels == int(c) for c in classes]
                 labels = sum(out)
-                img = self.aux_proj.project_points_values(points, labels)
+                img = self.aux_proj.project_points_values(points, labels, layers=layers)
                 return np.atleast_3d(img)
             else:
                 # multiclass classification
-                img = self.aux_proj.project_points_values(points, labels)
-                return keras.utils.to_categorical(self.label_map[img.astype(int)], num_classes=self.num_classes)
+                img = self.aux_proj.project_points_values(points, labels, layers=layers)
+                return keras.utils.to_categorical(self.config.labels2id[img.astype(int)], num_classes=self.num_classes)
 
     def fetch_gt(self, file_list, limit_index, **kwargs):
         max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
@@ -439,20 +451,23 @@ class SemanticKittiConfig:
         """
         self.config_file = config_file
         self.config = load_semantic_kitti_config(config_file)
-        labels, id2label = self._remap_classes()
-        self.labels = labels
+        labels2id, id2label = self._remap_classes()
+        self.labels2id = labels2id
         self.id2label = id2label
 
     def _remap_classes(self):
-        labels = np.array(list(self.config['labels'].keys()))
+        learning_map = self.config['learning_map']
+        learning_map_inv = self.config['learning_map_inv']
 
-        # this vector is the inverse function of labels array, i.e. labels[id_label_map[labels]] = labels
-        id_label_map = -np.ones(labels.max() + 1, dtype=np.int)
+        remaps = np.zeros(max(learning_map.keys()) + 1, dtype=int)
+        for k, v in learning_map.items():
+            remaps[k] = v
 
-        for n, l in enumerate(labels):
-            id_label_map[l] = n
+        inv_remaps = np.zeros(max(learning_map_inv.keys()) + 1, dtype=int)
+        for k, v in learning_map_inv.items():
+            inv_remaps[k] = v
 
-        return labels, id_label_map
+        return remaps, inv_remaps
 
 
 def get_z(points):
@@ -500,6 +515,13 @@ def retrieve_layers(points):
 
     return layers
 
+def add_layers(points):
+    layers = retrieve_layers(points)
+
+    new_points = np.c_[points, layers]
+
+    return new_points
+
 
 def subsample_pc(points, sub_ratio=2):
     """
@@ -519,6 +541,5 @@ def subsample_pc(points, sub_ratio=2):
         subsampled pointcloud
     """
     layers = retrieve_layers(points)
-    new_points = np.c_[points, layers]
     # sampling only points with even id
-    return new_points[layers % sub_ratio == 0]
+    return points[layers % sub_ratio == 0]
