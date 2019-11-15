@@ -10,7 +10,7 @@ class AbstractProjector(ABC):
         super(AbstractProjector, self).__init__()
 
     @abstractmethod
-    def project_point(self, point):
+    def project_point(self, points):
         pass
 
     @abstractmethod
@@ -49,13 +49,13 @@ class BEVProjector(AbstractProjector):
         self.side_range = side_range
         self.fwd_range = fwd_range
 
-    def project_point(self, point, x0=None, y0=None, delta_x=None, delta_y=None):
+    def project_point(self, points, x0=None, y0=None, delta_x=None, delta_y=None):
         """
         Function that project a 3D point on a pixel of image
 
         Parameters
         ----------
-        point: ndarray
+        points: ndarray
             point to project
 
         x0: float
@@ -72,8 +72,8 @@ class BEVProjector(AbstractProjector):
 
         """
 
-        if len(point.shape) < 2:
-            point = np.atleast_2d(point)
+        if len(points.shape) < 2:
+            points = np.atleast_2d(points)
 
         # we suppose that we are working with kitti velodyne, thus the reference system of the point cloud is
         #
@@ -83,8 +83,8 @@ class BEVProjector(AbstractProjector):
         #                |
         #         y <----0 Car
         #
-        x = point[:, 0]
-        y = point[:, 1]
+        x = points[:, 0]
+        y = points[:, 1]
 
         # MAPPING
         # Mappings from one point to grid
@@ -202,6 +202,36 @@ class SphericalProjector(AbstractProjector):
         return self.proj_H, self.proj_W
 
 
+class LaserProjector(AbstractProjector):
+    def __init__(self, height=64, width=1024):
+        self.proj_H = height
+        self.proj_W = width
+        super(AbstractProjector, self).__init__()
+
+    def project_point(self, points):
+        layers = points[:, -1]
+        # x coordinates
+        x = points[:, 0]
+        # y coordinates
+        y = points[:, 1]
+
+        # we need to invert orientation of y coordinates
+        yaw = np.arctan2(-y, x)
+        i_img_mapping = layers.astype(np.int)
+        j_img_mapping = 0.5 * (yaw / np.pi + 1.0)  # in [0.0, 1.0]
+        j_img_mapping *= self.proj_W  # in [0.0, W]
+
+        j_img_mapping = np.floor(j_img_mapping)
+        j_img_mapping = np.minimum(self.proj_W - 1, j_img_mapping)
+        j_img_mapping = np.maximum(0, j_img_mapping).astype(np.int32)  # in [0,W-1]
+
+        lidx = (i_img_mapping * self.proj_W) + j_img_mapping
+
+        return lidx, i_img_mapping, j_img_mapping
+
+    def get_image_size(self):
+        return self.proj_H, self.proj_W
+
 class Projection:
     def __init__(self,
                  proj_type,
@@ -250,6 +280,9 @@ class Projection:
             self.res = res
             self.projector = self._init_linear_projector(height=height, width=width, res=self.res)
 
+        elif self.proj_type == 'laser':
+            self.projector = self._init_laser_projector(height=height, width=width)
+
         else:
             raise ValueError("Projection Type can be only 'front' or 'bev'")
 
@@ -295,7 +328,25 @@ class Projection:
         """
         return BEVProjector(height=height, width=width, res=res)
 
-    def project_points_values(self, points, values, aggregate_func='max'):
+    @staticmethod
+    def _init_laser_projector(height, width):
+        """
+        Function that initialize a spherical projector by layer
+
+        Parameters
+        ----------
+        height:
+        width:
+
+
+        Returns
+        LaserProjector: BaseProjector (object)
+            Spherical projector by layer
+        """
+
+        return LaserProjector(height=height, width=width)
+
+    def project_points_values(self, points, values, aggregate_func='max', layers=None):
         """
         Function that project an array of values to an image
 
@@ -320,6 +371,7 @@ class Projection:
         proj_img: ndarray
             Image containing projected values
         """
+
         nr, nc = self.projector.get_image_size()
         if len(values.shape) < 2:
             channel_shape = 1
@@ -339,7 +391,10 @@ class Projection:
         # that is for each point we have a corresponding value to project
         assert len(points) == len(values)
         # project points to image
-        lidx, i_img_mapping, j_img_mapping = self.projector.project_point(points)
+        if self.proj_type == 'laser':
+            lidx, i_img_mapping, j_img_mapping = self.projector.project_point(np.c_[points, layers])
+        else:
+            lidx, i_img_mapping, j_img_mapping = self.projector.project_point(points)
 
         # initialize binned_feature map
         binned_values = np.zeros((nr * nc, values.shape[1]))
