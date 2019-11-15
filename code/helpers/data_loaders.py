@@ -184,10 +184,16 @@ def get_dataset(path, is_training=True):
     else:
         return testset
 
-def load_label_file(bin_path):
+def load_label_file(bin_path, instances=False):
     labels = np.fromfile(bin_path, dtype=np.uint32).reshape(-1)
-    labels = labels & 0xFFFF
-    return labels
+
+    seg_labels = labels & 0xFFFF
+
+    if instances:
+        inst = labels >> 16
+        return seg_labels, inst
+
+    return seg_labels
 
 def load_bin_file(bin_path, n_cols=4):
     '''
@@ -267,12 +273,16 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
     """
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
 
-def load_pyntcloud(filename, add_label=False):
+def load_pyntcloud(filename, add_label=False, instances=False):
     points = load_bin_file(filename)
     cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
     if add_label:
-        labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'))
-        cloud.points['labels'] = labels
+        labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'), instances=instances)
+        if instances:
+            cloud.points['labels'] = labels[0]
+            cloud.points['instances'] = labels[1]
+        else:
+            cloud.points['labels'] = labels
 
     return cloud
 
