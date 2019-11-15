@@ -285,7 +285,7 @@ def generate_feature_config(experiment_name, config_run) -> dict:
     return d
 
 
-def initialize_model(modelname, shape, subsample_ratio=1):
+def initialize_model(modelname, shape, subsample_ratio=1, output_channels=1):
     """
     Function that initialize model given its model name
 
@@ -308,7 +308,8 @@ def initialize_model(modelname, shape, subsample_ratio=1):
         model = dl_models.get_lodnn_model(shape=shape)
     elif modelname == 'unet':
         model = dl_models.get_unet_model(shape=shape,
-                                         subsample_ratio=subsample_ratio)
+                                         subsample_ratio=subsample_ratio,
+                                         output_channels=output_channels)
 
     elif modelname == 'unet6':
         model = dl_models.u_net6(shape=shape,
@@ -357,15 +358,15 @@ def get_test_name(features):
         name of the test file
 
     """
-    test_name = 'Classical_' if features['compute_classic'] else ''
-    test_name += 'Geometric_' if features['add_geometrical_features'] else ''
-    test_name += 'Eigen_' if features['compute_eigen'] else ''
+    test_name = 'Classical' if features['compute_classic'] else ''
+    test_name += '_Geometric' if features['add_geometrical_features'] else ''
+    test_name += '_Eigen' if features['compute_eigen'] else ''
 
     if features['subsample_ratio'] == 2:
-        test_name += 'Subsampled_32'
+        test_name += '_Subsampled_32'
 
     if features['subsample_ratio'] == 4:
-        test_name += 'Subsample_16'
+        test_name += '_Subsampled_16'
 
     return test_name
 
@@ -426,7 +427,7 @@ def run_training(features_maps, config_run):
 
     valid_iterator = zip(valid_generator, valid_mask_generator)
 
-    model = initialize_model(modelname, f_train.shape[1:], subsample_ratio=subsample_ratio)
+    model = initialize_model(modelname, f_train.shape[1:], subsample_ratio=subsample_ratio, output_channels=gt_train.shape[-1])
 
     # Add more callbacks
     clr_custom = keras_contrib.callbacks.CyclicLR(base_lr=0.0001, max_lr=0.01,
@@ -447,12 +448,12 @@ def run_training(features_maps, config_run):
                                     validation_steps=f_valid.shape[0])
 
     model.save("{}/model/final_model.h5".format(path))
-    plot_history(m_history)
-
-    png_name = '{}.png'.format(path + '/' + test_name)
-
-    plt.savefig(png_name)
-    plt.close()
+    # plot_history(m_history)
+    #
+    # png_name = '{}.png'.format(path + '/' + test_name)
+    #
+    # plt.savefig(png_name)
+    # plt.close()
 
     result = {"name": experiment_name,
               "test_name": test_name,
@@ -467,6 +468,8 @@ def run_training(features_maps, config_run):
         result['COUNT_MAX'] = str(RESCALE_VALUES['COUNT_MAX'])
     with open('{}/details.json'.format(path), 'w') as f:
         json.dump(result, f)
+
+    print("Model Trained")
 
 
 def train_model(config_filename, compute_features=False):
@@ -492,6 +495,7 @@ def train_model(config_filename, compute_features=False):
     else:
         # iterate over all possible experiments and run them
         for e in experiments:
+            print("Loading experiment ", e)
             config_exp = generate_feature_config(e, config_run)
             features = config_exp.get('features')
             view = config_exp.get('view')
