@@ -103,8 +103,8 @@ def jaccard2_coef(y_true, y_pred):
     return (intersection + smooth) / (union + smooth)
 
 
-def jaccard2_loss(y_true, y_pred):
-    return 1-jaccard2_coef(y_true, y_pred)
+# def jaccard2_loss(y_true, y_pred):
+#     return 1-jaccard2_coef(y_true, y_pred)
 
 def jaccard1_coef(y_true, y_pred):
     y_true_f = K.flatten(y_true)
@@ -280,3 +280,29 @@ def weighted_cross_entropy(beta):
     return tf.reduce_mean(loss)
 
   return loss
+
+
+def jaccard_loss_mean(y_true, y_pred, smooth=1):
+    """
+    Mean Jaccard Loss per classes.
+    Jaccard = (|X & Y|)/ (|X|+ |Y| - |X & Y|)
+            = sum(|A*B|)/(sum(|A|)+sum(|B|)-sum(|A*B|))
+    The jaccard distance loss is usefull for unbalanced datasets. This has been
+    shifted so it converges on 0 and is smoothed to avoid exploding or disapearing
+    gradient.
+    Ref: https://en.wikipedia.org/wiki/Jaccard_index
+    """
+    y_true=K.abs(y_true)
+    y_pred=K.abs(y_pred)
+    intersection = y_true * y_pred
+    union= y_true * y_true + y_pred*y_pred - intersection
+    union =K.sum(union, axis=[3,2])
+    intersection = K.sum(intersection, axis=[3,2])
+    jac = (intersection + smooth) / (union + smooth)
+    jac = K.mean(jac,axis=1)
+    return jac
+
+
+def jaccard2_loss(y_true, y_pred, smooth=1):
+    return 1 - jaccard_loss_mean(y_true, y_pred, smooth)
+
