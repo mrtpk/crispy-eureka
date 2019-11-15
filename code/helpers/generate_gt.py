@@ -5,8 +5,9 @@ from glob import glob
 from PIL import Image
 from skimage.morphology import closing, opening, rectangle, square
 # local imports
-from . import calibration
-from . import data_loaders as dls
+import calibration as calibration
+import data_loaders as dls
+from projection import Projection
 from tqdm import tqdm
 
 def retrieve_layers(points):
@@ -229,34 +230,41 @@ def project_gt_to_front(points, label_idx=-1):
 
     # todo: parametrize the following variables
     img_height = 64
-    res_planar = 300
-    img_width = np.ceil(np.pi * res_planar).astype(int)
+    img_width = 1024
+    # res_planar = 300
+    # img_width = np.ceil(np.pi * res_planar).astype(int)
+
+    # # get points coordinates
+    # x = points[:, 0]
+    # y = points[:, 1]
+
+    # # compute planar angles
+    # planar_angles = np.arctan2(-y, x) + np.pi / 2
+    #
+    # # get pixel coordinates for each point in the cloud
+    # i = retrieve_layers(points)
+    # assert i.max() == 63
+    # j = np.floor(planar_angles * res_planar).astype(int)
+    #
+    # idx = np.logical_and((planar_angles >= 0), (planar_angles < np.pi))
+    #
+    # for n in range(len(points)):
+    #     if idx[n]:
+    #         gt_img[i[n], j[n], 2] = 255 * labels[n].astype(np.uint8)
+
     # initialize gt_img
     gt_img = np.zeros((img_height, img_width, 3), dtype=np.uint8)
     gt_img[:, :, 0] = 255
-    # get points coordinates
-    x = points[:, 0]
-    y = points[:, 1]
+
+    # retrieve labels
     labels = points[:, label_idx]
-    # compute planar angles
-    planar_angles = np.arctan2(-y, x) + np.pi / 2
 
-    # get pixel coordinates for each point in the cloud
-    i = retrieve_layers(points)
-    assert i.max() == 63
-    j = np.floor(planar_angles * res_planar).astype(int)
+    proj = Projection(proj_type='front', height=img_height, width=img_width)
+    labels_img = proj.project_points_values(points[:,:3], labels)
+    labels_img = closing(labels_img, square(3))
+    gt_img[:, :, 2] = 255 * labels_img.astype(np.uint8)
 
-    idx = np.logical_and((planar_angles >= 0), (planar_angles < np.pi))
-
-    for n in range(len(points)):
-        if idx[n]:
-            gt_img[i[n], j[n], 2] = 255 * labels[n].astype(np.uint8)
-
-    cl_gt_img_2 = closing(gt_img[:, :, 2], square(3))
-    cl_gt_img = gt_img.copy()
-    cl_gt_img[:, :, 2] = cl_gt_img_2
-
-    gt_img = Image.fromarray(cl_gt_img.astype(np.uint8))
+    gt_img = Image.fromarray(gt_img.astype(np.uint8))
 
     return gt_img
 
@@ -270,7 +278,8 @@ def generate_kitti_gt(path):
     path: str
         path to database root
     """
-    train_set, valid_set, test_set = dls.get_dataset(path, is_training=True)
+    train_set, valid_set = dls.get_dataset(path, is_training=True)
+    test_set = dls.get_dataset(path, is_training=False)
 
     # joining all the lists together
     pc_fileslist = train_set['pc'] + valid_set['pc'] + test_set['pc']
@@ -384,6 +393,12 @@ if __name__ == "__main__":
         help='View to use for projection. Default "front"'
     )
 
+    parser.add_argument('--basedir', '-b',
+                        default='../../',
+                        type=str,
+                        required=False,
+                        help='dataset basedir')
+
     parser.add_argument(
         '--start',
         type=int,
@@ -394,7 +409,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    PATH = '../../'
+    PATH = args.basedir
 
     if args.dataset.lower() == 'kitti':
         generate_kitti_gt(os.path.abspath(PATH))
