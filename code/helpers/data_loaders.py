@@ -42,6 +42,12 @@ def remove_last_n(lst, n):
     '''
     return lst[:-n or None], lst[-n:]
 
+def fetch_file_list(path, extension):
+    if os.path.isdir(path):
+        return sorted(glob(os.path.join(path, "*." + extension)))
+    else:
+        return []
+
 def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
 
     # semantic Kitti basedir. TODO: decide if add this to parameters of the function
@@ -69,16 +75,15 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
         testset, validset, trainset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
 
         for s in sequences:
-            imgs_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
-            pc_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, pc_dir) + '/*.bin'))
-            label_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, label_dir) + '/*.label'))
-            gt_bev_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
-            gt_front_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
-            calib_list = len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
-                         [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
+            imgs_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, imgs_dir), 'png')
+            pc_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, pc_dir), 'bin')
+            label_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, label_dir), 'label')
+            gt_bev_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir), 'png')
+            gt_front_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, gt_front_dir), 'png')
+            calib_list = len(pc_list) * [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
 
             # the first 80% of the cases are putted in the train the remaining 20% are used for validation
-            num_frames_in_seq = len(imgs_list)
+            num_frames_in_seq = len(pc_list)
             n_frames_in_train = np.floor(num_frames_in_seq * 0.8).astype(int)
 
             if s in train_sequences:
@@ -95,15 +100,6 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
                 validset['gt_bev'] += gt_bev_list[n_frames_in_train:]
                 validset['gt_front'] += gt_front_list[n_frames_in_train:]
                 validset['calib'] += calib_list[n_frames_in_train:]
-
-            # if s in test_sequences:
-            #     testset['imgs'] += imgs_list[::5]
-            #     testset['pc'] += pc_list[::5]
-            #     testset['gt_bev'] += gt_bev_list[::5]
-            #     testset['gt_front'] += gt_front_list[::5]
-            #     testset['calib'] += calib_list[::5]
-
-            #     raise ValueError("Sequence {} not in the dataset".format(s))
 
         return  trainset, validset
     else:
