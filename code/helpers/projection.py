@@ -448,7 +448,7 @@ class Projection:
 
         return binned_values_map
 
-    def back_project(self, points, img, res_value=1):
+    def back_project(self, points, img, res_value=1, layers=None):
         """
         Function that back project values in a projection image to point cloud
 
@@ -463,6 +463,9 @@ class Projection:
         res_value: float
             Resolution value
 
+        layers: ndarray
+            layers for the projection by laser
+
         Returns
         -------
         values: ndarray
@@ -471,9 +474,11 @@ class Projection:
 
         # shape of projection image
         nr, nc, nz = np.atleast_3d(img).shape
-
         # retrieving pixels coordinates
-        lidx, i_img_mapping, j_img_mapping = self.projector.project_point(points)
+        if self.proj_type == 'laser':
+            lidx, i_img_mapping, j_img_mapping = self.projector.project_point(np.c_[points, layers])
+        else:
+            lidx, i_img_mapping, j_img_mapping = self.projector.project_point(points)
 
         img_f = img.reshape(nr*nc, nz)
 
