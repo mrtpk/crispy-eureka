@@ -5,6 +5,7 @@
 # func to load the gt from KITTI and LODNN
 # get_image : load the image specified in path
 
+import random
 import numpy as np
 import pandas as pd
 import cv2
@@ -16,15 +17,16 @@ from pyntcloud import PyntCloud
 from tqdm import tqdm
 import multiprocessing as mp
 # from . import calibration # from helpers.calibration import Calibration
-from joblib import Memory
-cachedir = 'cachedir/'
-memory = Memory(cachedir, verbose=0)
+# from joblib import Memory
+# cachedir = 'cachedir/'
+# memory = Memory(cachedir, verbose=0)
+
 
 def create_dir_struct(path, name):
-    '''
+    """
     Creates necessary directory structure for doing the experiments in 
     specified @param: path with @param: name
-    '''
+    """
     experiment_dir = "{}/code/output/{}".format(path, name)
     tmp_dir = "{}/tmp/".format(experiment_dir)
     log_dir = "{}/log/".format(experiment_dir)
@@ -35,12 +37,14 @@ def create_dir_struct(path, name):
     
     return experiment_dir, log_dir, tmp_dir, run_path
 
+
 def remove_last_n(lst, n):
-    '''
+    """
     Removes last @param: n elements from list @param: lst
     Returns modified list after deleting n elements and deleted elements
-    '''
+    """
     return lst[:-n or None], lst[-n:]
+
 
 def fetch_file_list(path, extension):
     if os.path.isdir(path):
@@ -48,18 +52,42 @@ def fetch_file_list(path, extension):
     else:
         return []
 
-def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
+def shuffle_dict(dictionary, seed=1):
+    """
+    Function that take a dictionary and return a shuffled version
+
+    Parameters
+    ----------
+    dictionary: dict
+        input dictionary to shuffle
+
+    seed: int
+        seed value
+
+    Returns
+    -------
+    shuffled_dict: dict
+    """
+    shuffled_dict = {}
+    for k in dictionary:
+        random.seed(seed)
+        shuffled_dict[k] = random.sample(dictionary[k], len(dictionary[k]))
+
+    return shuffled_dict
+
+def get_semantic_kitti_dataset(path, is_training=True, sequences=None, shuffle=False):
 
     # semantic Kitti basedir. TODO: decide if add this to parameters of the function
 
-    sem_kitti_basedir = 'dataset/SemanticKITTI/dataset/sequences'
-    train_sequences = ["{:02}".format(i) for i in range(11)]  ## according to semantic-kitti.yaml
+    # sem_kitti_basedir = 'dataset/SemanticKITTI/dataset/sequences'
+    sem_kitti_basedir = ''
+    train_sequences = ["{:02}".format(i) for i in range(11)]  # according to semantic-kitti.yaml
     train_sequences.remove('08')
     # test_sequences = ["{:02}".format(i) for i in range(11, 22, 1)]
     test_sequences = ["08"]
 
     # initialize dataset
-    dataset = {'imgs': [], 'calib': [], 'gt': [], 'gt_bev': [], 'gt_front': [], 'lodnn_gt': [], 'pc': [], 'labels':[]}
+    dataset = {'imgs': [], 'calib': [], 'gt': [], 'gt_bev': [], 'gt_front': [], 'lodnn_gt': [], 'pc': [], 'labels': []}
 
     imgs_dir = 'image_2'
     pc_dir = 'velodyne'
@@ -80,7 +108,7 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
             label_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, label_dir), 'label')
             gt_bev_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir), 'png')
             gt_front_list = fetch_file_list(os.path.join(path, sem_kitti_basedir, s, gt_front_dir), 'png')
-            calib_list = len(pc_list) * [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
+            calib_list = len(pc_list) * [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
 
             # the first 80% of the cases are putted in the train the remaining 20% are used for validation
             num_frames_in_seq = len(pc_list)
@@ -90,7 +118,7 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
                 trainset['imgs'] += imgs_list[:n_frames_in_train]
                 trainset['pc'] += pc_list[:n_frames_in_train]
                 trainset['labels'] += label_list[:n_frames_in_train]
-                trainset['gt_bev'] +=  gt_bev_list[:n_frames_in_train]
+                trainset['gt_bev'] += gt_bev_list[:n_frames_in_train]
                 trainset['gt_front'] += gt_front_list[:n_frames_in_train]
                 trainset['calib'] += calib_list[:n_frames_in_train]
 
@@ -100,8 +128,11 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
                 validset['gt_bev'] += gt_bev_list[n_frames_in_train:]
                 validset['gt_front'] += gt_front_list[n_frames_in_train:]
                 validset['calib'] += calib_list[n_frames_in_train:]
+        if shuffle:
+            trainset = shuffle_dict(trainset, seed=1)
+            validset = shuffle_dict(validset, seed=2)
 
-        return  trainset, validset
+        return trainset, validset
     else:
         for s in sequences:
             imgs_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, imgs_dir) + '/*.png'))
@@ -110,7 +141,7 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
             gt_bev_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
             gt_front_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
             calib_list = len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
-                         [ os.path.join(path, sem_kitti_basedir, s) + '/calib.txt' ]
+                         [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
 
             dataset['imgs'] += imgs_list
             dataset['pc'] += pc_list
@@ -119,6 +150,8 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None):
             dataset['gt_front'] += gt_front_list
             dataset['calib'] += calib_list
 
+        if shuffle:
+            dataset = shuffle_dict(dataset, seed=3)
 
         return dataset
 
