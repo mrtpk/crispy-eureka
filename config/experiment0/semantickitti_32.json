@@ -19,5 +19,7 @@
     "batch_size": 8,
     "epochs": 100,
     "optimizer": "keras.optimizers.Nadam"
-  }
+  },
+  "shape": [32, 2048],
+  "output_channels": 1
 }
