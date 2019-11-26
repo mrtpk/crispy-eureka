@@ -34,6 +34,10 @@ def binary_focal_loss(gamma=2.0, alpha=0.75):
         alpha -- 0.25 as mentioned in the paper
     """
     def focal_loss(y_true, y_pred):
+
+        # # print(y_true, y_pred)
+        # y_true = K.print_tensor(y_true, message='y_true = ')
+        # y_pred = K.print_tensor(y_pred, message='y_pred = ')
         # Define epsilon so that the backpropagation will not result in NaN
         # for 0 divisor case
         epsilon = K.epsilon()
