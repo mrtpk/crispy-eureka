@@ -1,6 +1,7 @@
 # %matplotlib inline
 import os
 import argparse
+import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
@@ -13,12 +14,14 @@ from keras import backend as k
 from keras_custom_loss import binary_focal_loss  # weightedLoss2
 # cyclic lr
 import keras_contrib
-
+from helpers.config_parser import JSONRunConfig
 # import helpers.generate_gt as generate_gt
 from helpers import data_loaders as dls
 from helpers.viz import plot_history  # plot
 from helpers.logger import Logger
+
 import utils
+from generator import generator_from_h5, DataLoaderGenerator
 from data import KITTIPointCloud
 import dl_models
 
@@ -29,31 +32,10 @@ RESCALE_VALUES = {
 }
 
 
-def get_features_map(config_run, force_compute):
-    """
-    Parameters
-    ----------
-    config_run: dict
-    force_compute: bool
-
-    Returns
-    -------
-    """
-    if force_compute:
-        f_train, gt_train, f_valid, gt_valid = generate_features_map(config_run)
-    else:
-        features_parameters = config_run['features']
-        view = config_run['view']
-        basedir = config_run['features_basedir']
-        exists = os.path.isfile(os.path.join(basedir, 'gt_train.npz'))
-
-        if exists:
-            f_train, gt_train, f_valid, gt_valid = load_features_maps_from_file(basedir, features_parameters, view)
-        else:
-            f_train, gt_train, f_valid, gt_valid = generate_features_map(config_run)
-            store_features_map(basedir, (f_train, gt_train, f_valid, gt_valid))
-
-    return f_train, gt_train, f_valid, gt_valid
+def save_array_on_h5_file(array, filename):
+    h5f = h5py.File(filename, 'w')
+    h5f.create_dataset('array', data=array)
+    h5f.close()
 
 
 def generate_features_map(config_run):
@@ -76,213 +58,91 @@ def generate_features_map(config_run):
     gt_valid: ndarray
         Ground truth of the validation set
     """
-
+    basedir = config_run['features_basedir']
     features_parameters = config_run.get('features')
-    gt_args = config_run.get('gt_args', {})
+    gt_args = config_run.get('gt_args', None)
     dataset = config_run.get('dataset')
     view = config_run.get('view')
+    path = config_run.get('path', '')
     sequences = config_run.get('sequences')
-    # initializet KITTIPointCloud class
+    # initialize KITTIPointCloud class
     kpc = KITTIPointCloud(feature_parameters=features_parameters,
                           is_training=True,
+                          path=path,
                           sequences=sequences,
                           view=view,
                           dataset=dataset)
-
-    # compute the maps from the dataset
-    f_train, gt_train, f_valid, gt_valid = kpc.load_dataset(limit_index=-1, **gt_args)
-
     RESCALE_VALUES['z_min'] = kpc.z_min
     RESCALE_VALUES['z_max'] = kpc.z_max
     if view == 'bev':
         RESCALE_VALUES['COUNT_MAX'] = kpc.COUNT_MAX
 
-    return f_train, gt_train, f_valid, gt_valid
+    # compute the maps from the dataset
+    split_size = 350 # todo parametrize this parameter
+
+    n_sample_train = len(kpc.train_set['pc'])
+    # before running feature generator we verify if path exists and if we need we generate it
+    os.makedirs(os.path.join(basedir, 'train', 'img'), exist_ok=True)
+    os.makedirs(os.path.join(basedir, 'train', 'gt'), exist_ok=True)
+
+    for i in range(0, n_sample_train, split_size):
+
+        max_id = min(n_sample_train, i + split_size)
+        if gt_args is None:
+            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id)
+        else:
+            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, **gt_args)
+
+        filename = os.path.join(basedir, 'train', 'img', '{:03}.h5'.format(i // split_size))
+        save_array_on_h5_file(f_train, filename)
+        filename = os.path.join(basedir, 'train', 'gt', '{:03}.h5'.format(i // split_size))
+        save_array_on_h5_file(gt_train, filename)
+
+    n_sample_valid = len(kpc.valid_set['pc'])
+    os.makedirs(os.path.join(basedir, 'valid', 'img'), exist_ok=True)
+    os.makedirs(os.path.join(basedir, 'valid', 'gt'), exist_ok=True)
+
+    for i in range(0, n_sample_valid, split_size):
+
+        max_id = min(n_sample_valid, i + split_size)
+
+        if gt_args is None:
+            f_valid, gt_valid = kpc.load_dataset(set_type='valid', min_id=i, max_id=max_id)
+        else:
+            f_valid, gt_valid = kpc.load_dataset(set_type='valid', min_id=i, max_id=max_id, **gt_args)
+        filename = os.path.join(basedir, 'valid', 'img', '{:03}.h5'.format(i // split_size))
+        save_array_on_h5_file(f_valid, filename)
+        filename = os.path.join(basedir, 'valid', 'gt', '{:03}.h5'.format(i // split_size))
+        save_array_on_h5_file(gt_valid, filename)
+
+    np.savez(os.path.join(basedir, 'rescale_values.npz'), **RESCALE_VALUES)
 
 
-def store_features_map(save_path, feature_maps):
-    """
-    Function that generates and store training and validation set features and ground truth images.
+def get_shape_and_variables(config_run):
 
-    Parameters
-    ----------
-    save_path: str
-
-    feature_maps: tuple
-        f_train, gt_train, f_valid, gt_valid
-    """
-    # if save_path dir does not exists we create it
-    os.makedirs(save_path, exist_ok=True)
-    f_train, gt_train, f_valid, gt_valid = feature_maps
-
-    np.savez(os.path.join(save_path, 'f_train.npz'), **{'data': f_train})
-    np.savez(os.path.join(save_path, 'f_valid.npz'), **{'data': f_valid})
-    np.savez(os.path.join(save_path, 'gt_train.npz'), **{'data': gt_train})
-    np.savez(os.path.join(save_path, 'gt_valid.npz'), **{'data': gt_valid})
-    np.savez(os.path.join(save_path, 'rescale_values.npz'), **RESCALE_VALUES)
-
-
-def load_features_maps_from_file(pathdir, features, view):
-    """
-    Parameters
-    ----------
-    pathdir: str
-        path to the directory
-    features: dict
-        dictionary containing all parameters concernign the features to load
-    view: option {'bev', 'front'}
-
-    Returns
-    -------
-    f_train: ndarray
-        Features map of training set
-
-    gt_train: ndarray
-        Ground truth of the training set
-
-    f_valid: ndarray
-        Features map of validation set
-
-    gt_valid: ndarray
-        Ground truth of validation set
-    """
-    print("Loading data from {}".format(pathdir))
-
-    f_train = np.load(os.path.join(pathdir, 'f_train.npz'))['data']
-    gt_train = np.load(os.path.join(pathdir, 'gt_train.npz'))['data']
-    f_valid = np.load(os.path.join(pathdir, 'f_valid.npz'))['data']
-    gt_valid = np.load(os.path.join(pathdir, 'gt_valid.npz'))['data']
-
+    view = config_run.get('view')
+    features = config_run.get('features', None)
     features_idx = []
-
+    n_channels = 0
     if features['compute_classic']:
         if view == 'bev':
+            n_channels += 6
             features_idx = np.concatenate((features_idx, np.arange(6))).astype(int)
         else:
+            n_channels += 3
             features_idx = np.concatenate((features_idx, np.arange(3))).astype(int)
 
     if features['add_geometrical_features']:
+        n_channels += 3
         features_idx = np.concatenate((features_idx, np.arange(3, 6))).astype(int)
 
     if features['compute_eigen']:
+        n_channels += 6
         features_idx = np.concatenate((features_idx, np.arange(6, 12))).astype(int)
 
     print("Number of features: {}".format(len(features_idx)))
 
-    f_train = f_train[..., features_idx]
-    f_valid = f_valid[..., features_idx]
-
-    rescale = np.load(os.path.join(pathdir, 'rescale_values.npz'))
-
-    RESCALE_VALUES['z_min'] = rescale['z_min']
-    RESCALE_VALUES['z_max'] = rescale['z_max']
-    RESCALE_VALUES['COUNT_MAX'] = rescale['COUNT_MAX']
-
-    return f_train, gt_train, f_valid, gt_valid
-
-
-def parse_config_file(config_filename) -> dict:
-    """
-    helper function that parse the config file and return the paramters for the training
-    Parameters
-    ----------
-    config_filename: str
-        config filename
-
-    Returns
-    -------
-    model: str
-        name of the model to use for training
-
-    dataset: option {'kitti', 'semantickitti'}
-        name of dataset to use for training
-
-    view: option {'bev', 'front'}
-
-    Returns
-    -------
-    config_run: dict
-
-    """
-    with open(config_filename) as f:
-        json_config = json.load(f)
-
-    model = json_config.get('model', 'lodnn')
-    dataset = json_config.get('dataset', 'kitti')
-    view = json_config.get('view', 'bev')
-    parameters = json_config.get('parameters', None)
-    sequences = json_config.get('sequences', None)
-    gt_args = json_config.get('gt_args', None)
-    store_features_basedir = json_config.get('store_features_basedir', None)
-    training_config = json_config.get('training_config')
-    experiments = json_config.get('experiments', None)
-    if sequences is not None:
-        sequences = ['{:02}'.format(i) for i in sequences]
-
-    features = dict(
-        compute_classic=str2bool(parameters.get('compute_classic', 0)),
-        add_geometrical_features=str2bool(parameters.get('add_geometrical_features', 0)),
-        subsample_ratio=parameters.get('subsample_ratio', 1),
-        compute_eigen=parameters.get('compute_eigen', 0)
-    )
-
-    if store_features_basedir is not None:
-        layer_dir = str(64 // features['subsample_ratio'])
-        features_basedir = os.path.join(store_features_basedir, dataset, view, layer_dir)
-    else:
-        features_basedir = ''
-
-    config_run = dict(model=model,
-                      dataset=dataset,
-                      view=view,
-                      sequences=sequences,
-                      features_basedir=features_basedir,
-                      training_config=training_config,
-                      experiments=experiments,
-                      features=features,
-                      gt_args=gt_args)
-
-    return config_run
-
-
-def generate_feature_config(experiment_name, config_run) -> dict:
-    """
-    Function that generate the config dictionary to run experiment
-
-    Parameters
-    ----------
-    experiment_name: str
-        name of the experiment for which we want to generate the feature dict
-
-    config_run: dict
-        current config_run dictionary containing all the information about the values for the parameters
-
-    Returns
-    -------
-    d: dict
-        dictionary containing the configuration to run the current experiment
-    """
-    d = copy.deepcopy(config_run)
-    base_feat = d.get('features')
-    features = dict(
-        compute_classic=False,
-        add_geometrical_features=False,
-        subsample_ratio=base_feat.get('subsample_ratio', 1),
-        compute_eigen=0
-    )
-
-    if 'classic' in experiment_name.lower():
-        features['compute_classic'] = True
-
-    if 'geometry' in experiment_name.lower():
-        features['add_geometrical_features'] = True
-
-    if 'eigen' in experiment_name.lower():
-        features['compute_eigen'] = base_feat.get('compute_eigen')
-
-    d['features'] = features
-
-    return d
+    return features_idx, n_channels
 
 
 def initialize_model(modelname, shape, subsample_ratio=1, output_channels=1):
@@ -327,72 +187,27 @@ def initialize_model(modelname, shape, subsample_ratio=1, output_channels=1):
     return model
 
 
-def str2bool(v):
-    """
-    Function that return a boolean from a string.
-
-    Parameters
-    ----------
-    v: str
-        input string
-
-    Returns
-    -------
-    bool
-    """
-    return v.lower() in ("yes", "true", "t", "1")
-
-
-def get_test_name(features):
-    """
-    Function that return test name based on the features parameters
-
-    Parameters
-    ----------
-    features: dict
-        dictionary containing all the possible configuration on the test
-
-    Return
-    ------
-    test_name: str
-        name of the test file
-
-    """
-    test_name = 'Classical' if features['compute_classic'] else ''
-    test_name += '_Geometric' if features['add_geometrical_features'] else ''
-    test_name += '_Eigen' if features['compute_eigen'] else ''
-
-    if features['subsample_ratio'] == 2:
-        test_name += '_Subsampled_32'
-
-    if features['subsample_ratio'] == 4:
-        test_name += '_Subsampled_16'
-
-    return test_name
-
-
-def run_training(features_maps, config_run):
+def run_training(json_run):
     """
     Function used to train a DL model
 
     Parameters
     ----------
-    features_maps: tuple
-
-    config_run: dict
+    json_run:
     """
-    f_train, gt_train, f_valid, gt_valid = features_maps
-    print("Train set: features map shape --> ", f_train.shape)
-    print("Train set: ground truth shape --> ", gt_train.shape)
-    print("Validation Set: features map shape --> ", f_valid.shape)
-    print("Validation Set: ground truth shape --> ", gt_valid.shape)
+
+    config_run = json_run.get_config_run()
+    basedir = config_run['features_basedir']
     training_config = config_run.get('training_config')
     features = config_run.get('features')
+    output_channels = config_run.get('output_channels')
+    shape = config_run.get('shape')
     subsample_ratio = features['subsample_ratio']
-    test_name = get_test_name(features)
-    view = config_run.get('view')
-    dataset = config_run.get('dataset')
-    modelname = config_run.get('model')
+    test_name = json_run.get_test_name()
+    print("Test Name: ", test_name)
+    view = json_run.view
+    dataset = json_run.dataset
+    modelname = json_run.model
 
     print(RESCALE_VALUES)
     print("Running ", test_name)
@@ -406,28 +221,18 @@ def run_training(features_maps, config_run):
     path = utils.create_run_dir(_RUN_PATH, run_id)
     callbacks = utils.get_basic_callbacks(path)
 
-    # this is the augmentation configuration we will use for training
-    dict_aug_args = dict(horizontal_flip=True)
-    seed = 1
-    train_datagen = ImageDataGenerator(**dict_aug_args)
-    mask_datagen = ImageDataGenerator(**dict_aug_args)
+    traindir = os.path.join(basedir, 'train')
+    validdir = os.path.join(basedir, 'valid')
+    variables, n_channels = get_shape_and_variables(config_run)
+    shape = shape + (n_channels, )
+    # train_iterator = generator_from_h5(traindir, variables=variables, batch_size=training_config["batch_size"])
+    train_iterator = DataLoaderGenerator(traindir, variables=variables, batch_size=training_config["batch_size"])
+    # valid_iterator = generator_from_h5(validdir, variables=variables, batch_size=training_config["batch_size"])
+    valid_iterator = DataLoaderGenerator(validdir, variables=variables, batch_size=1)
 
-    # Provide the same seed and keyword arguments to the fit and flow methodsf_
-    train_generator = train_datagen.flow(f_train, batch_size=training_config['batch_size'], shuffle=True, seed=seed)
-    mask_generator = mask_datagen.flow(gt_train, batch_size=training_config['batch_size'], shuffle=True, seed=seed)
+    # TODO: ADD data augmentation
 
-    train_iterator = zip(train_generator, mask_generator)
-
-    # Validation
-    seed = 2
-    valid_datagen = ImageDataGenerator(**dict_aug_args)
-    valid_mask_datagen = ImageDataGenerator(**dict_aug_args)
-    valid_generator = valid_datagen.flow(f_valid, batch_size=1, shuffle=True, seed=seed)
-    valid_mask_generator = valid_mask_datagen.flow(gt_valid, batch_size=1, shuffle=True, seed=seed)
-
-    valid_iterator = zip(valid_generator, valid_mask_generator)
-
-    model = initialize_model(modelname, f_train.shape[1:], subsample_ratio=subsample_ratio, output_channels=gt_train.shape[-1])
+    model = initialize_model(modelname, shape, subsample_ratio=subsample_ratio, output_channels=output_channels)
 
     # Add more callbacks
     clr_custom = keras_contrib.callbacks.CyclicLR(base_lr=0.0001, max_lr=0.01,
@@ -441,11 +246,13 @@ def run_training(features_maps, config_run):
 
     m_history = model.fit_generator(train_iterator,
                                     epochs=training_config['epochs'],
-                                    steps_per_epoch=int(f_train.shape[0] // training_config["batch_size"]),
+                                    # steps_per_epoch=300,
                                     verbose=1,
                                     callbacks=callbacks,
                                     validation_data=valid_iterator,
-                                    validation_steps=f_valid.shape[0])
+                                    # validation_steps=200,
+                                    use_multiprocessing=True,
+                                    workers=8)
 
     model.save("{}/model/final_model.h5".format(path))
     # plot_history(m_history)
@@ -472,43 +279,49 @@ def run_training(features_maps, config_run):
     print("Model Trained")
 
 
-def train_model(config_filename, compute_features=False):
+def train_model(config_filename, path, compute_features=False):
 
-    config_run = parse_config_file(config_filename)
+
+    json_run = JSONRunConfig(config_filename)
+    config_run = json_run.get_config_run()
+    config_run['path'] = path
     # load the features map for the current experiment
     features_basedir = config_run.get('features_basedir')
     # checking if the features_map for this set of experiments has already been computed
-    exists = os.path.isfile(os.path.join(features_basedir, 'gt_train.npz'))
+    exists = os.path.isfile(os.path.join(features_basedir, 'rescale_values.npz'))
 
-    if not exists:  # if not we compute and store them
-        features_maps = get_features_map(config_run, compute_features)
-    else:
-        features_maps = None
+    if not exists or compute_features:  # if not we compute and store them
+        generate_features_map(config_run)
+
+    if exists:
+        rescale = np.load(os.path.join(features_basedir, 'rescale_values.npz'))
+
+        RESCALE_VALUES['z_min'] = float(rescale['z_min'])
+        RESCALE_VALUES['z_max'] = float(rescale['z_max'])
+        RESCALE_VALUES['COUNT_MAX'] = int(rescale['COUNT_MAX'])
 
     experiments = config_run.get('experiments')
-
+    #
     if experiments is None:
-        if features_maps is None:
-            features_maps = get_features_map(config_run, compute_features)
-
-        run_training(features_maps, config_run)
+        pass
+        run_training(json_run)
     else:
         # iterate over all possible experiments and run them
         for e in experiments:
             print("Loading experiment ", e)
-            config_exp = generate_feature_config(e, config_run)
-            features = config_exp.get('features')
-            view = config_exp.get('view')
+            config_exp = json_run.update_config_run(e)
             print(config_exp)
-            features_maps = load_features_maps_from_file(features_basedir, features, view)
+            print(json_run)
+            # features_maps = load_features_maps_from_file(features_basedir, features, view)
             # run current experiment
-            run_training(features_maps, config_exp)
+            run_training(json_run)
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Road Segmentation")
     parser.add_argument('--cuda_device', default='0', type=str, help='GPU to use')
+    parser.add_argument('--path', default='../', type=str, help='path to dataset')
     parser.add_argument('--config_file', default="", type=str, help='config file')
     parser.add_argument('--features', action='store_true')
 
@@ -531,4 +344,4 @@ if __name__ == "__main__":
     config_file = args.config_file
     force_compute_features = args.features
 
-    train_model(config_file, force_compute_features)
+    train_model(config_file, args.path, force_compute_features)
