@@ -20,7 +20,8 @@ class KITTIPointCloud:
     """
     Classes that load the point clouds an generate features maps
     """
-    def __init__(self, feature_parameters, path='', is_training=True, sequences=None, view='bev', dataset='kitti'):
+    def __init__(self, feature_parameters, path='', is_training=True, sequences=None, view='bev', dataset='kitti',
+                 shuffle=True):
         if len(path) == 0:
             self.dataset_path = '../'
         else:
@@ -33,6 +34,7 @@ class KITTIPointCloud:
 
         if self.dataset == 'semantickitti':
             data_loader_args['sequences'] = sequences
+            data_loader_args['shuffle'] = shuffle
 
         if self.is_training:
             self.train_set, self.valid_set = DATASET_LOADERS[dataset](**data_loader_args)
@@ -88,15 +90,15 @@ class KITTIPointCloud:
         self.number_of_grids = self.proj_H * self.proj_W
 
         if self.is_training:
-            self.z_min = np.inf
-            self.z_max = -np.inf
-            if self.view == 'bev':
-                self.COUNT_MAX = -1
+            z_min, z_max, COUNT_MAX = self.compute_rescale_values()
+            self.z_min = z_min
+            self.z_max = z_max
+            self.COUNT_MAX = COUNT_MAX
 
         else:
-            self.z_max = feature_parameters.get('z_max')
-            self.z_min = feature_parameters.get('z_min')
-            self.COUNT_MAX = feature_parameters.get('COUNT_MAX')
+            self.z_max = float(feature_parameters.get('z_max'))
+            self.z_min = float(feature_parameters.get('z_min'))
+            self.COUNT_MAX = int(float(feature_parameters.get('COUNT_MAX')))
 
             if self.z_max is None:
                 self.z_max = 3.32
@@ -116,45 +118,61 @@ class KITTIPointCloud:
                                      'This could lead to prediction error because of renormalization. '
                                      'Value for COUNT_MAX is set to {}'.format(self.COUNT_MAX))
 
-    def load_dataset(self, limit_index=-1, **gt_args):
+    def compute_rescale_values(self):
+        pc_filelist = self.train_set['pc'] + self.valid_set['pc']
+        pc_list = load_pc(pc_filelist)
+        z_vals = process_list(pc_list, get_z)
+        z_vals = np.concatenate([z_vals])
+
+        z_min = np.min(z_vals[:, 0])
+        z_max = np.max(z_vals[:, 1])
+
+        if self.dataset == 'kitti':
+            pc_list = process_list(pc_list, filter_points,
+                                   **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
+
+        print("z min: {}, z max: {}".format(z_min, z_max))
+
+        if self.view == 'bev':
+            count_max = process_list(pc_list, self.get_count_features)
+            count_max = np.concatenate([c.flatten() for c in count_max])
+            COUNT_MAX = np.max(count_max)
+        else:
+            COUNT_MAX = 0
+
+        return z_min, z_max, COUNT_MAX
+
+    def load_dataset(self, set_type='train', min_id=0, max_id=-1, step=1, **gt_args):
 
         print('Loading dataset')
 
         gt_key = 'gt_front' if self.view == 'front' else 'gt_bev'
 
-        if self.is_training:
-            f_train = self.load_pc_and_get_features(self.train_set["pc"], limit_index)
-            f_valid = self.load_pc_and_get_features(self.valid_set["pc"], limit_index)
-
-            print("Height ranges from {} to {}".format(self.z_min, self.z_max))
-
-            if self.view == 'bev':
-                print("Count varies from 0 to {}".format(self.COUNT_MAX))
-
-            if self.dataset == 'kitti':
-                gt_train_data_list = self.train_set[gt_key]
-                gt_valid_data_list = self.valid_set[gt_key]
-            else:
-                gt_train_data_list = [[i1, i2] for i1, i2 in zip(self.train_set['pc'], self.train_set['labels'])]
-                gt_valid_data_list = [[i1, i2] for i1, i2 in zip(self.valid_set['pc'], self.valid_set['labels'])]
-
-            gt_train = self.fetch_gt(gt_train_data_list, limit_index, **gt_args)
-            gt_valid = self.fetch_gt(gt_valid_data_list, limit_index, **gt_args)
-
-            return np.array(f_train), np.array(gt_train), np.array(f_valid), np.array(gt_valid)
+        if set_type == 'train':
+            files_list = self.train_set
+        elif set_type == 'valid':
+            files_list = self.valid_set
+        elif set_type == 'test':
+            files_list = self.test_set
         else:
-            f_test = self.load_pc_and_get_features(self.test_set["pc"], limit_index)
+            raise ValueError("Parameter 'set' cannot be {}. "
+                             "Accepted values are either 'train', 'valid' or 'test'.".format(set_type))
 
-            if self.dataset == 'kitti':
-                gt_test_data_list = self.test_set[gt_key]
-            else:
-                gt_test_data_list = [[i1, i2] for i1, i2 in zip(self.test_set['pc'], self.test_set['labels'])]
+        pc_list = files_list['pc']
+        feat_map = self.load_pc_and_get_features(pc_list, min_id=min_id, max_id=max_id, step=step)
 
-            gt_test = self.fetch_gt(gt_test_data_list, limit_index, **gt_args)
+        if self.dataset == 'kitti':
+            gt_list = files_list[gt_key]
+        else:
+            label_list = files_list['labels']
+            gt_list = [[i1, i2] for i1, i2 in zip(pc_list, label_list)]
 
-            return np.array(f_test), np.array(gt_test)
+        gt = self.fetch_gt(gt_list, min_id=min_id, max_id=max_id, step=step, **gt_args)
 
-    def load_pc_and_get_features(self, file_list, limit_index=-1):
+        return np.array(feat_map), np.array(gt)
+
+
+    def load_pc_and_get_features(self, file_list, min_id=0, max_id=-1, step=1):
         """
         Function that load point cloud and generate features map
 
@@ -163,7 +181,7 @@ class KITTIPointCloud:
         file_list: list
             list of point cloud files to load
 
-        limit_index: int
+        max_id: int
             index of max element of list to treat
 
         Returns
@@ -171,35 +189,15 @@ class KITTIPointCloud:
         features_map: ndarray
             array of features maps generated from input point cloud
         """
-        max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
-        pc_list = load_pc(file_list[:max_id])
+        max_id = len(file_list) if max_id == -1 else min(max_id, len(file_list))
+        pc_list = load_pc(file_list[min_id:max_id:step])
         pc_list = process_list(pc_list, add_layers)
 
         if self.subsample_ratio > 1:
             pc_list = process_list(pc_list, subsample_pc, sub_ratio=self.subsample_ratio)
 
-        if self.is_training:
-            z_vals = process_list(pc_list, get_z)
-            z_vals = np.concatenate([z_vals])
-            # todo: add code to extract z_min, z_max
-            print(np.min(z_vals[:, 0]), np.max(z_vals[:, 1]))
-
-            if self.dataset == 'kitti':
-                pc_list = process_list(pc_list, filter_points,
-                                       **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
-
-            self.z_min = min(self.z_min, np.min(z_vals[:, 0]))
-            self.z_max = max(self.z_max, np.max(z_vals[:, 1]))
-            print(self.z_min, self.z_max)
-            if self.view == 'bev':
-                count_max = process_list(pc_list, self.get_count_features)
-                count_max = np.concatenate([c.flatten() for c in count_max])
-                self.COUNT_MAX = max(self.COUNT_MAX, np.max(count_max))
-
-        else:
-            if self.dataset == 'kitti':
-                pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range,
-                                                                  'fwd_range': self.fwd_range})
+        if self.dataset == 'kitti':
+            pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
 
         features_map = process_list(pc_list, self.get_features)
 
@@ -228,8 +226,11 @@ class KITTIPointCloud:
                 # estimate normals in front view image
                 normals = self.get_normals_features(point_cloud, self.aux_proj)
 
+                normals = np.abs(normals)
+
+                layers = (point_cloud[:, -1] // self.subsample_ratio).astype(int)
                 # back project points from front view image to 3D
-                normals_3d = self.aux_proj.back_project(point_cloud[:, :3], normals)
+                normals_3d = self.aux_proj.back_project(point_cloud[:, :3], normals,  layers=layers)
 
                 # project 3d normals to BEV image
                 normals = self.proj.project_points_values(point_cloud[:, :3], normals_3d, aggregate_func='mean')
@@ -347,10 +348,14 @@ class KITTIPointCloud:
         y = points[:, 1]
         z = points[:, 2]
         pitch = np.arccos(z / np.sqrt(x ** 2 + y ** 2))
-        pitch_axis = np.zeros(height)
+
+        # we initialize pitch axis as an uniform grid and then we adapt it according to local distribution of angles
+        pitch_axis = np.linspace(self.fov_up, self.fov_down, height)
 
         for n in range(height):
-            pitch_axis[n] = pitch[layers == n].mean()
+            idx = layers == n
+            if idx.sum():
+                pitch_axis[n] = pitch[idx].mean()
 
         normals = estimate_normals_from_spherical_img(rho_img, yaw=yaw_axis, pitch=pitch_axis, res_rho=1.0)
 
@@ -434,9 +439,9 @@ class KITTIPointCloud:
                 img = self.aux_proj.project_points_values(points, labels, layers=layers)
                 return keras.utils.to_categorical(self.config.labels2id[img.astype(int)], num_classes=self.num_classes)
 
-    def fetch_gt(self, file_list, limit_index, **kwargs):
-        max_id = len(file_list) if limit_index == -1 else min(limit_index, len(file_list))
-        return process_list(file_list[:max_id], self.load_gt, **kwargs)
+    def fetch_gt(self, file_list, min_id, max_id, step,**kwargs):
+        max_id = len(file_list) if max_id == -1 else min(max_id, len(file_list))
+        return process_list(file_list[min_id:max_id:step], self.load_gt, **kwargs)
 
 
 class SemanticKittiConfig:
@@ -474,7 +479,7 @@ def get_z(points):
     return np.array([np.min(points[:, 2]), np.max(points[:, 2])])
 
 
-def retrieve_layers(points):
+def retrieve_layers(points, max_layers=64):
     """
     Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
     And each layer is stocked in a clockwise (or anticlockwise) fashion.
@@ -507,11 +512,32 @@ def retrieve_layers(points):
 
     intervals.append([changes[-1], len(thetas)])
 
+    # check if we have retrieved all the layers
+    if len(intervals) < max_layers:
+        el = intervals.pop(0)
+        # in case not we are going to explore again the vector of thetas on the initial part
+        thex = np.copy(thetas[:el[1]])
+        # we compute again the diffs between consecutive angles and we mark each time we have a negative difference
+        diffs = np.ediff1d(thex)
+        idx = diffs < 0
+        ints = np.arange(len(idx))[idx]
+        # the negative differences mark the end of a layer and the beginning of another
+        new_intervals = []
+        max_new_ints = min(len(ints), max_layers - len(intervals))
+        for i in range(max_new_ints):
+            if i == 0:
+                new_intervals.append([0, ints[i]])
+            elif i == max_new_ints - 1:
+                new_intervals.append([ints[i], el[1]])
+            else:
+                new_intervals.append([ints[i], ints[i + 1]])
+        intervals = new_intervals + intervals
+
     # for each element in interval we assign a label that identifies the layer
     layers = np.zeros(len(thetas), dtype=np.uint8)
 
-    for n, el in enumerate(intervals):
-        layers[el[0]:el[1]] = n
+    for n, el in enumerate(intervals[::-1]):
+        layers[el[0]:el[1]] = max_layers - (n + 1)
 
     return layers
 
