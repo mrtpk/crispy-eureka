@@ -120,12 +120,16 @@ class KITTIPointCloud:
 
     def compute_rescale_values(self):
         pc_filelist = self.train_set['pc'] + self.valid_set['pc']
-        pc_list = load_pc(pc_filelist)
-        z_vals = process_list(pc_list, get_z)
-        z_vals = np.concatenate([z_vals])
 
-        z_min = np.min(z_vals[:, 0])
-        z_max = np.max(z_vals[:, 1])
+        z_min = np.inf
+        z_max = -np.inf
+        for i in range(0, len(pc_filelist), 500):
+            pc_list = load_pc(pc_filelist[i:i+500])
+            z_vals = process_list(pc_list, get_z)
+            z_vals = np.concatenate([z_vals])
+
+            z_min = min(np.min(z_vals[:, 0]), z_min)
+            z_max = max(np.max(z_vals[:, 1]), z_max)
 
         if self.dataset == 'kitti':
             pc_list = process_list(pc_list, filter_points,
@@ -200,6 +204,8 @@ class KITTIPointCloud:
             pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
 
         features_map = process_list(pc_list, self.get_features)
+
+        del pc_list
 
         return features_map
 
@@ -396,6 +402,8 @@ class KITTIPointCloud:
 
         eigen_features = pc.points.values[:,7:]
         # eigen_features = pc.points.as_matrix(columns=pc.points.columns[7:])
+
+        del pc
 
         return eigen_features
 
