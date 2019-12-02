@@ -48,7 +48,7 @@ do
     DATASET_PATH=${KITTI_PATH}
 
   fi
-  echo "Dataset path: ${PATH}"
+  echo "Dataset path: ${DATASET_PATH}"
   echo "------------------------------"
   python train.py --cuda_device=$ID_CUDA_DEVICE --config_file=$file --path=$DATASET_PATH
 done
