@@ -12,6 +12,8 @@ def load_h5_file(path, variables=None):
     with h5py.File(path, 'r') as hf:
         data = np.array(hf["array"])
 
+    hf.close()
+
     if variables is not None:
         return data[..., variables]
     else:
@@ -48,14 +50,14 @@ def generator_from_h5(basedir, variables=None, batch_size=5, jump_after=300):
         yield Xtemp, Ytemp
 
 class DataLoaderGenerator(keras.utils.Sequence):
-    def __init__(self, basedir, batch_size=5, variables=None, shuffle=True, n_samples_per_file=300):
+    def __init__(self, basedir, batch_size=5, variables=None, n_samples_per_file=300):
         'Initialization'
         self.batch_size = batch_size
         self.variables = variables
         self.basedir = basedir
         self.list_files = sorted(glob(os.path.join(basedir, 'img', '*.h5')))
-        # self.n_classes = n_classes
-        self.shuffle = shuffle
+        self.file_indexes = np.arange(len(self.list_files))
+        self.counter = 0
         self.n_samples_per_file = n_samples_per_file
         self.local_proc_rand_gen = np.random.RandomState()
         self.on_epoch_end()
@@ -63,29 +65,34 @@ class DataLoaderGenerator(keras.utils.Sequence):
     def __len__(self):
         'Denotes the number of batches per epoch'
         ## it should be like n_sample / batch_size
-        # 300 is hard coded
-        return int(np.floor(len(self.list_files) * self.n_samples_per_file) / self.batch_size)
+        return int(np.floor( (len(self.list_files) * self.n_samples_per_file)) / self.batch_size)
 
     def __getitem__(self, index):
 
         # generate indexes of the batch
         # indexes = self.indexes[index * self.batch_size: (index+1) * self.batch_size]
         indexes = np.random.choice(self.X.shape[0], self.batch_size)
-        # X = np.empty((self.batch_size, *self.dim, len(self.variables)))
-        # y = np.empty((self.batch_size, *self.dim, self.n_classes), dtype=int)
+        indexes.sort()
+
         # get data
         X = self.X[indexes]
-        y = self.Y[indexes].astype(np.int)
+        y = self.Y[indexes]
 
         return X, y
 
     def on_epoch_end(self):
+        if self.counter == 0:
+            np.random.shuffle(self.file_indexes)
+
+        if self.counter == len(self.list_files):
+            self.counter = 0
+
         'update indexes after each epoch'
-        file = self.list_files[self.local_proc_rand_gen.choice(len(self.list_files), 1)[0]]
-        # print(file)
+        # file = self.list_files[self.local_proc_rand_gen.choice(len(self.list_files), 1)[0]]
+        file = self.list_files[self.file_indexes[self.counter]]
+
         self.X = load_h5_file(file, variables=self.variables)
         self.Y = load_h5_file(file.replace('img', 'gt'))
 
-        self.indexes = np.arange(len(self.X))
-        if self.shuffle == True:
-            np.random.shuffle(self.indexes)
+        self.counter += 1
+
