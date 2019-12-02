@@ -104,7 +104,7 @@ class JSONRunConfig:
 
     def update_config_run(self, experiment_name):
 
-        base_feat = self.config_run.get('features')
+        base_feat = self.features
         features = dict(
             compute_classic=False,
             add_geometrical_features=False,
