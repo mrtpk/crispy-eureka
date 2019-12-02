@@ -10,6 +10,7 @@ exit_abnormal() {                              # Function: Exit with error.
 re_isanum='^[0-9]+$'
 optspec=":hc:p:"
 CONFIG_PATH='../config/experiment0/'
+
 while getopts "$optspec" option; do
   case "${option}" in
     h)
@@ -32,8 +33,22 @@ fi
 # look for all the json files inside CONFIG_PATH
 filenames=`find $CONFIG_PATH -maxdepth 1 -name "*.json"`
 
+# the next two variables are to fill by the user according to her/his local file organization
+KITTI_PATH='..'
+SEMANTICKITTI_PATH='../dataset/SemanticKITTI/dataset/sequences/'
+
 for file in $filenames
 do
-  echo $file
-  python train.py --cuda_device=$ID_CUDA_DEVICE --config_file=$file
+  echo "Training model for Road Segmentation with: "
+  echo "Config file: ${file}"
+  echo "Cuda device: ${ID_CUDA_DEVICE}"
+  if [[ $file == *"semantic"* ]] ; then
+    DATASET_PATH=${SEMANTICKITTI_PATH}
+  else
+    DATASET_PATH=${KITTI_PATH}
+
+  fi
+  echo "Dataset path: ${PATH}"
+  echo "------------------------------"
+  python train.py --cuda_device=$ID_CUDA_DEVICE --config_file=$file --path=$DATASET_PATH
 done
