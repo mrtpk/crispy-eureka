@@ -9,6 +9,7 @@ from helpers.pointcloud import filter_points
 from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
 from skimage.morphology import closing, square, opening, rectangle
+import gc
 
 DATASET_LOADERS = {
     'kitti': get_dataset,
@@ -123,8 +124,11 @@ class KITTIPointCloud:
 
         z_min = np.inf
         z_max = -np.inf
-        for i in range(0, len(pc_filelist), 500):
-            pc_list = load_pc(pc_filelist[i:i+500])
+        batch = 1000
+
+        pc_list = []
+        for i in range(0, len(pc_filelist), batch):
+            pc_list = load_pc(pc_filelist[i:i+batch])
             z_vals = process_list(pc_list, get_z)
             z_vals = np.concatenate([z_vals])
 
@@ -162,39 +166,28 @@ class KITTIPointCloud:
             raise ValueError("Parameter 'set' cannot be {}. "
                              "Accepted values are either 'train', 'valid' or 'test'.".format(set_type))
 
-        pc_list = files_list['pc']
-        feat_map = self.load_pc_and_get_features(pc_list, min_id=min_id, max_id=max_id, step=step)
+        pc_list = self.fetch_data(files_list, min_id=min_id, max_id=max_id, step=step)
+        feat_map = process_list(pc_list, self.get_features)
 
         if self.dataset == 'kitti':
             gt_list = files_list[gt_key]
+            gt = process_list(gt_list, self.load_kitti_gt)
         else:
-            label_list = files_list['labels']
-            gt_list = [[i1, i2] for i1, i2 in zip(pc_list, label_list)]
-
-        gt = self.fetch_gt(gt_list, min_id=min_id, max_id=max_id, step=step, **gt_args)
+            gt = process_list(pc_list, self.load_semantickitti_gt, **gt_args)
 
         return np.array(feat_map), np.array(gt)
 
+    def fetch_data(self, dataset, min_id=0, max_id=-1, step=1):
 
-    def load_pc_and_get_features(self, file_list, min_id=0, max_id=-1, step=1):
-        """
-        Function that load point cloud and generate features map
+        pc_files = dataset['pc']
+        max_id = len(pc_files) if max_id == -1 else min(max_id, len(pc_files))
+        pc_list = load_pc(pc_files[min_id:max_id:step])
 
-        Parameters
-        ----------
-        file_list: list
-            list of point cloud files to load
+        if self.is_training and self.dataset != 'kitti':
+            label_files = dataset['labels']
+            labels = process_list(label_files[min_id:max_id:step], load_label_file)
+            pc_list = process_list(zip(pc_list, labels), add_labels)
 
-        max_id: int
-            index of max element of list to treat
-
-        Returns
-        -------
-        features_map: ndarray
-            array of features maps generated from input point cloud
-        """
-        max_id = len(file_list) if max_id == -1 else min(max_id, len(file_list))
-        pc_list = load_pc(file_list[min_id:max_id:step])
         pc_list = process_list(pc_list, add_layers)
 
         if self.subsample_ratio > 1:
@@ -203,11 +196,7 @@ class KITTIPointCloud:
         if self.dataset == 'kitti':
             pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
 
-        features_map = process_list(pc_list, self.get_features)
-
-        del pc_list
-
-        return features_map
+        return pc_list
 
     def get_features(self, point_cloud):
         """
@@ -404,10 +393,17 @@ class KITTIPointCloud:
         # eigen_features = pc.points.as_matrix(columns=pc.points.columns[7:])
 
         del pc
+        gc.collect()
 
         return eigen_features
 
-    def load_gt(self, filename, **kwargs):
+    def load_kitti_gt(self, filename):
+            img = cv2.imread(filename, -1)
+            road = img[:, :, 0] / 255  # Road is encoded as 255 in the B plane
+            non_road = 1 - road  # TODO: can we do this in training time?
+            return np.dstack([road, non_road])
+
+    def load_semantickitti_gt(self, point_cloud, **kwargs):
         """
         Function that load the ground truth image and return the one-hot encoded ground truth image
 
@@ -422,34 +418,23 @@ class KITTIPointCloud:
         """
         # read a 16-bit image with opencv
 
-        if self.dataset == 'kitti':
-            img = cv2.imread(filename, -1)
-            road = img[:, :, 0] / 255  # Road is encoded as 255 in the B plane
-            non_road = 1 - road  # TODO: can we do this in training time?
-            return np.dstack([road, non_road])
+        points = point_cloud[:, :3]
+        labels = point_cloud[:, -2]
+        layers = point_cloud[:, -1]
 
-        elif self.dataset == 'semantickitti':
-            pc_filename = filename[0]
-            label_filename = filename[1]
-            labels = load_label_file(label_filename)
-            points = load_bin_file(pc_filename)
-            layers = retrieve_layers(points)
-            # classes should be a list containing classes that we want to isolate for binary segmentation
-            classes = kwargs.get('classes', None)
-            if classes is not None:
-                # binary class classification
-                out = [labels == int(c) for c in classes]
-                labels = sum(out)
-                img = self.aux_proj.project_points_values(points, labels, layers=layers)
-                return np.atleast_3d(img)
-            else:
-                # multiclass classification
-                img = self.aux_proj.project_points_values(points, labels, layers=layers)
-                return keras.utils.to_categorical(self.config.labels2id[img.astype(int)], num_classes=self.num_classes)
+        classes = kwargs.get('classes', None)
 
-    def fetch_gt(self, file_list, min_id, max_id, step,**kwargs):
-        max_id = len(file_list) if max_id == -1 else min(max_id, len(file_list))
-        return process_list(file_list[min_id:max_id:step], self.load_gt, **kwargs)
+        if classes is not None:
+            # binary class classification
+            out = [labels == int(c) for c in classes]
+            labels = sum(out)
+            img = self.aux_proj.project_points_values(points, labels, layers=layers)
+            return np.atleast_3d(img)
+
+        else:
+            # multiclass classification
+            img = self.aux_proj.project_points_values(points, labels, layers=layers)
+            return keras.utils.to_categorical(self.config.labels2id[img.astype(int)], num_classes=self.num_classes)
 
 
 class SemanticKittiConfig:
@@ -556,6 +541,10 @@ def add_layers(points):
 
     return new_points
 
+def add_labels(pc_label_list):
+    pc = pc_label_list[0]
+    label = pc_label_list[1]
+    return np.c_[pc, label]
 
 def subsample_pc(points, sub_ratio=2):
     """
