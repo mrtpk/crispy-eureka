@@ -1,5 +1,6 @@
 # %matplotlib inline
 import os
+import gc
 import argparse
 import h5py
 import matplotlib.pyplot as plt
@@ -21,7 +22,7 @@ from helpers.viz import plot_history  # plot
 from helpers.logger import Logger
 
 import utils
-from generator import generator_from_h5, DataLoaderGenerator
+from generator import generator_from_h5, DataLoaderGenerator, load_h5_file
 from data import KITTIPointCloud
 import dl_models
 
@@ -78,7 +79,7 @@ def generate_features_map(config_run):
         RESCALE_VALUES['COUNT_MAX'] = kpc.COUNT_MAX
 
     # compute the maps from the dataset
-    split_size = 350 # todo parametrize this parameter
+    split_size = 200 # todo parametrize this parameter
 
     n_sample_train = len(kpc.train_set['pc'])
     # before running feature generator we verify if path exists and if we need we generate it
@@ -98,6 +99,8 @@ def generate_features_map(config_run):
         filename = os.path.join(basedir, 'train', 'gt', '{:03}.h5'.format(i // split_size))
         save_array_on_h5_file(gt_train, filename)
 
+        gc.collect()
+
     n_sample_valid = len(kpc.valid_set['pc'])
     os.makedirs(os.path.join(basedir, 'valid', 'img'), exist_ok=True)
     os.makedirs(os.path.join(basedir, 'valid', 'gt'), exist_ok=True)
@@ -114,6 +117,8 @@ def generate_features_map(config_run):
         save_array_on_h5_file(f_valid, filename)
         filename = os.path.join(basedir, 'valid', 'gt', '{:03}.h5'.format(i // split_size))
         save_array_on_h5_file(gt_valid, filename)
+
+        gc.collect()
 
     np.savez(os.path.join(basedir, 'rescale_values.npz'), **RESCALE_VALUES)
 
@@ -225,13 +230,14 @@ def run_training(json_run):
     validdir = os.path.join(basedir, 'valid')
     variables, n_channels = get_shape_and_variables(config_run)
     shape = shape + (n_channels, )
-    # train_iterator = generator_from_h5(traindir, variables=variables, batch_size=training_config["batch_size"])
-    train_iterator = DataLoaderGenerator(traindir, variables=variables, batch_size=training_config["batch_size"])
-    # valid_iterator = generator_from_h5(validdir, variables=variables, batch_size=training_config["batch_size"])
-    valid_iterator = DataLoaderGenerator(validdir, variables=variables, batch_size=1)
 
-    # TODO: ADD data augmentation
+    # # train_iterator = generator_from_h5(traindir, variables=variables, batch_size=training_config["batch_size"])
+    train_iterator = DataLoaderGenerator(traindir, variables=variables, batch_size=training_config["batch_size"], n_samples_per_file=200)
+    # valid_iterator = generator_from_h5(validdir, variables=variables, batch_size=training_config["batch_size"], jump_after=300)
+    valid_iterator = DataLoaderGenerator(validdir, variables=variables, batch_size=training_config["batch_size"], n_samples_per_file=200)
 
+    # X_valid = keras.utils.io_utils.HDF5Matrix(os.path.join(validdir, 'all_img.h5'), 'array')
+    # y_valid = keras.utils.io_utils.HDF5Matrix(os.path.join(validdir, 'all_gt.h5'), 'array')
     model = initialize_model(modelname, shape, subsample_ratio=subsample_ratio, output_channels=output_channels)
 
     # Add more callbacks
@@ -250,9 +256,10 @@ def run_training(json_run):
                                     verbose=1,
                                     callbacks=callbacks,
                                     validation_data=valid_iterator,
-                                    # validation_steps=200,
+                                    # validation_steps=100,
                                     use_multiprocessing=True,
-                                    workers=8)
+                                    workers=8
+                                    )
 
     model.save("{}/model/final_model.h5".format(path))
     # plot_history(m_history)
@@ -279,7 +286,26 @@ def run_training(json_run):
     print("Model Trained")
 
 
-def train_model(config_filename, path, compute_features=False):
+def initialize_session(cuda_device='0', gpu_memory_fraction=1.0):
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_device
+    print("GPU id: {}".format(cuda_device))
+    # Tensorflow wizardry
+    config = tf.ConfigProto()
+    # Don't pre-allocate memory; allocate as-needed
+    config.gpu_options.allow_growth = True
+
+    if gpu_memory_fraction < 1.0:
+        # Only allow a total of half the GPU memory to be allocated
+        config.gpu_options.per_process_gpu_memory_fraction = gpu_memory_fraction
+
+    # create a session with the above option specified
+    k.tensorflow_backend.set_session(tf.Session(config=config))
+    run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
+
+    return run_opts
+
+
+def train_model(config_filename, path, compute_features=False, cuda_device='0', gpu_memory_fraction=1.0):
 
 
     json_run = JSONRunConfig(config_filename)
@@ -301,9 +327,10 @@ def train_model(config_filename, path, compute_features=False):
         RESCALE_VALUES['COUNT_MAX'] = int(rescale['COUNT_MAX'])
 
     experiments = config_run.get('experiments')
-    #
+
+    initialize_session(cuda_device, gpu_memory_fraction)
+
     if experiments is None:
-        pass
         run_training(json_run)
     else:
         # iterate over all possible experiments and run them
@@ -316,7 +343,6 @@ def train_model(config_filename, path, compute_features=False):
             # run current experiment
             run_training(json_run)
 
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Road Segmentation")
@@ -324,24 +350,12 @@ if __name__ == "__main__":
     parser.add_argument('--path', default='../', type=str, help='path to dataset')
     parser.add_argument('--config_file', default="", type=str, help='config file')
     parser.add_argument('--features', action='store_true')
+    parser.add_argument('--gpu_fraction', default=1.0, type=float, help='Fraction of GPU memory to allocate')
 
     args = parser.parse_args()
-
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_device
-    print(args.cuda_device)
-    # Tensorflow wizardry
-    config = tf.ConfigProto()
-    # Don't pre-allocate memory; allocate as-needed
-    config.gpu_options.allow_growth = True
-
-    # Only allow a total of half the GPU memory to be allocated
-    config.gpu_options.per_process_gpu_memory_fraction = 0.85
-
-    # create a session with the above option specified
-    k.tensorflow_backend.set_session(tf.Session(config=config))
-    run_opts = tf.RunOptions(report_tensor_allocations_upon_oom=True)
 
     config_file = args.config_file
     force_compute_features = args.features
 
-    train_model(config_file, args.path, force_compute_features)
+    train_model(config_file, args.path, force_compute_features,
+                cuda_device=args.cuda_device, gpu_memory_fraction=args.gpu_fraction)
