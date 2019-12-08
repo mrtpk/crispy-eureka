@@ -205,3 +205,5 @@ modules.xml
 nbs/cachedir/joblib/
 nbs/helpers/tmp.h5
 .vscode/settings.json
+*.npz
+*.h5
