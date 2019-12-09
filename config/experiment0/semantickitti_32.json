@@ -9,7 +9,7 @@
     "subsample_ratio": 2,
     "compute_eigen": 100
   },
-  "experiments": ["classic", "geometry", "classic+geometry", "classic+eigen","classic+geometry+eigen"],
+  "experiments": ["classic", "geometry", "height+geometry", "classic+geometry", "classic+eigen","classic+geometry+eigen"],
   "gt_args": {
     "classes": [40]
   },
