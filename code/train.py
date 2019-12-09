@@ -147,8 +147,10 @@ def get_shape_and_variables(config_run):
 
     if features['compute_z'] and len(features_idx) == 0:
         if view == 'bev':
+            n_channels += 4
             features_idx = np.arange(2, 6)
         else:
+            n_channels += 1
             features_idx = [2]
 
     if features['add_geometrical_features']:
