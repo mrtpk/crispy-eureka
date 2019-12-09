@@ -46,7 +46,8 @@ class JSONRunConfig:
             compute_classic=str2bool(self.parameters.get('compute_classic', 0)),
             add_geometrical_features=str2bool(self.parameters.get('add_geometrical_features', 0)),
             subsample_ratio=self.parameters.get('subsample_ratio', 1),
-            compute_eigen=self.parameters.get('compute_eigen', 0)
+            compute_eigen=self.parameters.get('compute_eigen', 0),
+            compute_z=False,
         )
 
         if self.store_features_basedir is not None:
@@ -109,7 +110,8 @@ class JSONRunConfig:
             compute_classic=False,
             add_geometrical_features=False,
             subsample_ratio=base_feat.get('subsample_ratio', 1),
-            compute_eigen=0
+            compute_eigen=0,
+            compute_z=False,
         )
 
         if 'classic' in experiment_name.lower():
@@ -120,6 +122,9 @@ class JSONRunConfig:
 
         if 'eigen' in experiment_name.lower():
             features['compute_eigen'] = base_feat.get('compute_eigen')
+
+        if 'height' in experiment_name.lower():
+            features['compute_z'] = True
 
         self.config_run['features'] = features
 

@@ -145,6 +145,12 @@ def get_shape_and_variables(config_run):
             n_channels += 3
             features_idx = np.concatenate((features_idx, np.arange(3))).astype(int)
 
+    if features['compute_z'] and len(features_idx) == 0:
+        if view == 'bev':
+            features_idx = np.arange(2, 6)
+        else:
+            features_idx = [2]
+
     if features['add_geometrical_features']:
         n_channels += 3
         features_idx = np.concatenate((features_idx, np.arange(start_geo_feat, start_geo_feat + 3))).astype(int)
