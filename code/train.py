@@ -90,9 +90,9 @@ def generate_features_map(config_run):
 
         max_id = min(n_sample_train, i + split_size)
         if gt_args is None:
-            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id)
+            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, step=10)
         else:
-            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, **gt_args)
+            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, step=10, **gt_args)
 
         filename = os.path.join(basedir, 'train', 'img', '{:03}.h5'.format(i // split_size))
         save_array_on_h5_file(f_train, filename)
