@@ -12,7 +12,7 @@ from keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 
 from keras import backend as k
-from keras_custom_loss import binary_focal_loss  # weightedLoss2
+from keras_custom_loss import binary_focal_loss, jaccard_loss_mean  # weightedLoss2
 # cyclic lr
 import keras_contrib
 from helpers.config_parser import JSONRunConfig
@@ -72,7 +72,8 @@ def generate_features_map(config_run):
                           path=path,
                           sequences=sequences,
                           view=view,
-                          dataset=dataset)
+                          dataset=dataset,
+                          shuffle=False)
     RESCALE_VALUES['z_min'] = kpc.z_min
     RESCALE_VALUES['z_max'] = kpc.z_max
     if view == 'bev':
@@ -86,13 +87,16 @@ def generate_features_map(config_run):
     os.makedirs(os.path.join(basedir, 'train', 'img'), exist_ok=True)
     os.makedirs(os.path.join(basedir, 'train', 'gt'), exist_ok=True)
 
-    for i in range(0, n_sample_train, split_size):
+    # todo parametrize this variable
+    step = 1 if dataset == 'kitti' else 10
 
-        max_id = min(n_sample_train, i + split_size)
+    for i in range(0, n_sample_train, split_size * step):
+
+        max_id = min(n_sample_train, i + split_size * step)
         if gt_args is None:
-            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, step=10)
+            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, step=step)
         else:
-            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, step=10, **gt_args)
+            f_train, gt_train = kpc.load_dataset(set_type='train', min_id=i, max_id=max_id, step=step, **gt_args)
 
         filename = os.path.join(basedir, 'train', 'img', '{:03}.h5'.format(i // split_size))
         save_array_on_h5_file(f_train, filename)
@@ -105,14 +109,14 @@ def generate_features_map(config_run):
     os.makedirs(os.path.join(basedir, 'valid', 'img'), exist_ok=True)
     os.makedirs(os.path.join(basedir, 'valid', 'gt'), exist_ok=True)
 
-    for i in range(0, n_sample_valid, split_size):
+    for i in range(0, n_sample_valid, split_size * step):
 
-        max_id = min(n_sample_valid, i + split_size)
+        max_id = min(n_sample_valid, i + split_size * step)
 
         if gt_args is None:
-            f_valid, gt_valid = kpc.load_dataset(set_type='valid', min_id=i, max_id=max_id)
+            f_valid, gt_valid = kpc.load_dataset(set_type='valid', min_id=i, max_id=max_id, step=step)
         else:
-            f_valid, gt_valid = kpc.load_dataset(set_type='valid', min_id=i, max_id=max_id, **gt_args)
+            f_valid, gt_valid = kpc.load_dataset(set_type='valid', min_id=i, max_id=max_id, step=step, **gt_args)
         filename = os.path.join(basedir, 'valid', 'img', '{:03}.h5'.format(i // split_size))
         save_array_on_h5_file(f_valid, filename)
         filename = os.path.join(basedir, 'valid', 'gt', '{:03}.h5'.format(i // split_size))
@@ -129,6 +133,10 @@ def get_shape_and_variables(config_run):
     features = config_run.get('features', None)
     features_idx = []
     n_channels = 0
+
+    start_geo_feat = 6 if view == 'bev' else 3
+    start_eig_feat = 9 if view == 'bev' else 6
+
     if features['compute_classic']:
         if view == 'bev':
             n_channels += 6
@@ -139,11 +147,11 @@ def get_shape_and_variables(config_run):
 
     if features['add_geometrical_features']:
         n_channels += 3
-        features_idx = np.concatenate((features_idx, np.arange(3, 6))).astype(int)
+        features_idx = np.concatenate((features_idx, np.arange(start_geo_feat, start_geo_feat + 3))).astype(int)
 
     if features['compute_eigen']:
         n_channels += 6
-        features_idx = np.concatenate((features_idx, np.arange(6, 12))).astype(int)
+        features_idx = np.concatenate((features_idx, np.arange(start_eig_feat, start_eig_feat + 6))).astype(int)
 
     print("Number of features: {}".format(len(features_idx)))
 
@@ -236,8 +244,6 @@ def run_training(json_run):
     # valid_iterator = generator_from_h5(validdir, variables=variables, batch_size=training_config["batch_size"], jump_after=300)
     valid_iterator = DataLoaderGenerator(validdir, variables=variables, batch_size=training_config["batch_size"], n_samples_per_file=200)
 
-    # X_valid = keras.utils.io_utils.HDF5Matrix(os.path.join(validdir, 'all_img.h5'), 'array')
-    # y_valid = keras.utils.io_utils.HDF5Matrix(os.path.join(validdir, 'all_gt.h5'), 'array')
     model = initialize_model(modelname, shape, subsample_ratio=subsample_ratio, output_channels=output_channels)
 
     # Add more callbacks
@@ -248,17 +254,13 @@ def run_training(json_run):
     callbacks = callbacks + [clr_custom]
     model.compile(loss=binary_focal_loss(),
                   optimizer=eval(training_config["optimizer"])(lr=training_config["learning_rate"]),
-                  metrics=['accuracy'])
+                  metrics=['accuracy', jaccard_loss_mean])
 
     m_history = model.fit_generator(train_iterator,
                                     epochs=training_config['epochs'],
-                                    # steps_per_epoch=300,
                                     verbose=1,
                                     callbacks=callbacks,
-                                    validation_data=valid_iterator,
-                                    # validation_steps=100,
-                                    use_multiprocessing=True,
-                                    workers=8
+                                    validation_data=valid_iterator
                                     )
 
     model.save("{}/model/final_model.h5".format(path))
