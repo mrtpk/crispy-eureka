@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pyntcloud import PyntCloud
 from helpers.data_loaders import process_list, get_dataset, get_semantic_kitti_dataset, load_pc, load_bin_file
-from helpers.data_loaders import load_label_file, load_semantic_kitti_config
+from helpers.data_loaders import load_label_file, load_semantic_kitti_config, shuffle_dict
 from helpers.pointcloud import filter_points
 from helpers.projection import Projection
 from helpers.normals import estimate_normals_from_spherical_img
@@ -118,6 +118,17 @@ class KITTIPointCloud:
                 raise RuntimeWarning('No COUNT_MAX value passed for testing. '
                                      'This could lead to prediction error because of renormalization. '
                                      'Value for COUNT_MAX is set to {}'.format(self.COUNT_MAX))
+
+    def shuffle_dataset(self, set_type='train'):
+        if set_type == 'train':
+            shuffle_dict(self.train_set, seed=1)
+        elif set_type == 'valid':
+            shuffle_dict(self.valid_set, seed=2)
+        elif set_type == 'test':
+            shuffle_dict(self.test_set, seed=3)
+        else:
+            raise ValueError("Parameter 'set' cannot be {}. "
+                             "Accepted values are either 'train', 'valid' or 'test'.".format(set_type))
 
     def compute_rescale_values(self):
         pc_filelist = self.train_set['pc'] + self.valid_set['pc']
