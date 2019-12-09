@@ -14,8 +14,10 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 # %matplotlib qt # for process_stream
 import cv2
+
 
 def plot(imgs, labels=None, cmap='gray', figsize=(20,10), fontsize=30, show_axis=True):
     '''
@@ -279,3 +281,43 @@ def plot_confusion_matrix(cm, classes,
     plt.tight_layout()
     if len(savefig) > 0:
         plt.savefig(savefig, dpi=90)
+
+
+def plot_bev_maps(X, nr, nc, idx=-1, title=None):
+    if title is None:
+        title = [
+            'count',
+            'mean_refl',
+            'max_z',
+            'min_z',
+            'mean_z',
+            'std_z','nx',
+            'ny',
+            'nz',
+            'curvature',
+            'eigenentropy',
+            'linearity',
+            'omnivariance',
+            'planarity',
+            'sphericity'
+        ]
+
+    if idx == -1:
+        idx = np.random.randint(len(X))
+
+    fig, axs = plt.subplots(nr, nc)
+
+    for n, ax in enumerate(axs.ravel()):
+        im = ax.imshow(X[idx, :, :, n])
+        ax.set_title(title[n])
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        fig.colorbar(im, cax=cax)
+    plt.show()
+
+def plot_Xy(X, y, alpha=0.5):
+
+    plt.figure()
+    plt.imshow(X[:, :,  6:], alpha=alpha)
+    plt.imshow(y[:, :, 0], alpha=alpha)
+    plt.show()
