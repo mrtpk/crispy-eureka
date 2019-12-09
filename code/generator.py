@@ -50,7 +50,7 @@ def generator_from_h5(basedir, variables=None, batch_size=5, jump_after=300):
         yield Xtemp, Ytemp
 
 class DataLoaderGenerator(keras.utils.Sequence):
-    def __init__(self, basedir, batch_size=5, variables=None, n_samples_per_file=300):
+    def __init__(self, basedir, batch_size=5, variables=None, flip_vertically=True, n_samples_per_file=300):
         'Initialization'
         self.batch_size = batch_size
         self.variables = variables
@@ -58,6 +58,7 @@ class DataLoaderGenerator(keras.utils.Sequence):
         self.list_files = sorted(glob(os.path.join(basedir, 'img', '*.h5')))
         self.file_indexes = np.arange(len(self.list_files))
         self.counter = 0
+        self.flip_vertically = flip_vertically
         self.n_samples_per_file = n_samples_per_file
         self.local_proc_rand_gen = np.random.RandomState()
         self.on_epoch_end()
@@ -77,15 +78,23 @@ class DataLoaderGenerator(keras.utils.Sequence):
         # get data
         X = self.X[indexes]
         y = self.Y[indexes]
+        # print(indexes)
+        if self.flip_vertically:
+            for i in range(len(X)):
+                p = np.random.rand()
+                if p > 0.5:
+                    # print("flipped ", i)
+                    X[i] = np.flip(X[i], axis=1)
+                    y[i] = np.flip(y[i], axis=1)
 
         return X, y
 
     def on_epoch_end(self):
-        if self.counter == 0:
-            np.random.shuffle(self.file_indexes)
-
         if self.counter == len(self.list_files):
             self.counter = 0
+
+        if self.counter == 0:
+            np.random.shuffle(self.file_indexes)
 
         'update indexes after each epoch'
         # file = self.list_files[self.local_proc_rand_gen.choice(len(self.list_files), 1)[0]]
