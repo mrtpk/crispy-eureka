@@ -209,7 +209,7 @@ class Experiment:
         return geometric, hog, sampled, sampled_ratio, eigen, n_channels
 
 
-    def run_pred(self, f_test, save_res=False):
+    def run_pred(self, f_test):
         # image shape
         n_row, n_col, n_channels = f_test.shape[1:]
 
@@ -223,7 +223,7 @@ class Experiment:
 
         pred, times = predict_test_set(self.model, f_test)
 
-        pred = pred[:, :(self.sampled_ratio * n_row), :n_col, :]  # setting same dimension as before
+        # pred = pred[:, :(self.sampled_ratio * n_row), :n_col, :]  # setting same dimension as before
 
         return pred, times
 
