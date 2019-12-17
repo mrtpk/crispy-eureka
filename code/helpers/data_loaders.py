@@ -140,8 +140,7 @@ def get_semantic_kitti_dataset(path, is_training=True, sequences=None, shuffle=F
             label_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, label_dir) + '/*.label'))
             gt_bev_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_bev_dir) + '/*.png'))
             gt_front_list = sorted(glob(os.path.join(path, sem_kitti_basedir, s, gt_front_dir) + '/*.png'))
-            calib_list = len(os.listdir(os.path.join(path, sem_kitti_basedir, s, imgs_dir))) * \
-                         [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
+            calib_list = len(pc_list) * [os.path.join(path, sem_kitti_basedir, s) + '/calib.txt']
 
             dataset['imgs'] += imgs_list
             dataset['pc'] += pc_list
