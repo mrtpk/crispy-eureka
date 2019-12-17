@@ -47,6 +47,7 @@ class KITTIPointCloud:
         self.compute_classic = feature_parameters.get('compute_classic', True)
         self.add_geometrical_features = feature_parameters.get('add_geometrical_features', False)
         self.subsample_ratio = feature_parameters.get('subsample_ratio', 1)
+        self.compute_z = feature_parameters.get('compute_z', False)
 
         self.kneighbors = feature_parameters.get('compute_eigen', 0)
         self.compute_eigen = self.kneighbors > 0
@@ -61,7 +62,7 @@ class KITTIPointCloud:
         self.fov_up = (85.0 * np.pi) / 180.0
         self.fov_down = (115.0 * np.pi) / 180.0
 
-        if self.dataset == 'kitti':
+        if self.dataset == 'kitti' or self.view == 'bev':
             # hard coded parameters for kitti dataset
             self.side_range = (-10, 10)
             self.fwd_range = (6, 46)
@@ -89,35 +90,25 @@ class KITTIPointCloud:
             # self.aux_proj = Projection(proj_type='front', height=64, width=self.proj_W)
 
         self.number_of_grids = self.proj_H * self.proj_W
-
-        if self.is_training:
-            z_min, z_max, COUNT_MAX = self.compute_rescale_values()
-            self.z_min = z_min
-            self.z_max = z_max
+        self.z_max = 4.0
+        self.z_min = -4.0
+        # self.z_min = -30.21500015258789
+        # self.z_max = 2.9130001068115234
+        if self.is_training and self.view == 'bev':
+            COUNT_MAX = self.compute_count_max()
             self.COUNT_MAX = COUNT_MAX
 
         else:
-            self.z_max = float(feature_parameters.get('z_max'))
-            self.z_min = float(feature_parameters.get('z_min'))
-            self.COUNT_MAX = int(float(feature_parameters.get('COUNT_MAX')))
-
-            if self.z_max is None:
-                self.z_max = 3.32
-                raise RuntimeWarning('No z_max value passed for testing. '
-                                     'This could lead to prediction error because of renormalization. '
-                                     'Value for z_max is set to {}'.format(self.z_max))
-
-            if self.z_min is None:
-                self.z_min = -32.32
-                raise RuntimeWarning('No z_min value passed for testing. '
-                                     'This could lead to prediction error because of renormalization. '
-                                     'Value for z_min is set to {}'.format(self.z_min))
-
+            self.COUNT_MAX = feature_parameters.get('COUNT_MAX', None)
             if self.COUNT_MAX is None and self.view == 'bev':
-                self.COUNT_MAX = 200
+                self.COUNT_MAX = 122
                 raise RuntimeWarning('No COUNT_MAX value passed for testing. '
                                      'This could lead to prediction error because of renormalization. '
                                      'Value for COUNT_MAX is set to {}'.format(self.COUNT_MAX))
+            elif self.COUNT_MAX is not None:
+                self.COUNT_MAX = int(float(self.COUNT_MAX))
+            else:
+                self.COUNT_MAX = 122
 
     def shuffle_dataset(self, set_type='train'):
         if set_type == 'train':
@@ -130,36 +121,29 @@ class KITTIPointCloud:
             raise ValueError("Parameter 'set' cannot be {}. "
                              "Accepted values are either 'train', 'valid' or 'test'.".format(set_type))
 
-    def compute_rescale_values(self):
+    def compute_count_max(self):
         pc_filelist = self.train_set['pc'] + self.valid_set['pc']
 
-        z_min = np.inf
-        z_max = -np.inf
+        # z_min = np.inf
+        # z_max = -np.inf
         batch = 1000
-
+        COUNT_MAX = 0
         pc_list = []
         for i in range(0, len(pc_filelist), batch):
             pc_list = load_pc(pc_filelist[i:i+batch])
-            z_vals = process_list(pc_list, get_z)
-            z_vals = np.concatenate([z_vals])
 
-            z_min = min(np.min(z_vals[:, 0]), z_min)
-            z_max = max(np.max(z_vals[:, 1]), z_max)
+            if self.dataset == 'kitti':
+                pc_list = process_list(pc_list, filter_points,
+                                       **{'side_range': self.side_range,
+                                          'fwd_range': self.fwd_range,
+                                          'height_range': (-4, 4)})
 
-        if self.dataset == 'kitti':
-            pc_list = process_list(pc_list, filter_points,
-                                   **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
 
-        print("z min: {}, z max: {}".format(z_min, z_max))
-
-        if self.view == 'bev':
             count_max = process_list(pc_list, self.get_count_features)
             count_max = np.concatenate([c.flatten() for c in count_max])
-            COUNT_MAX = np.max(count_max)
-        else:
-            COUNT_MAX = 0
+            COUNT_MAX = max(COUNT_MAX, np.max(count_max))
 
-        return z_min, z_max, COUNT_MAX
+        return COUNT_MAX
 
     def load_dataset(self, set_type='train', min_id=0, max_id=-1, step=1, **gt_args):
 
@@ -180,7 +164,7 @@ class KITTIPointCloud:
         pc_list = self.fetch_data(files_list, min_id=min_id, max_id=max_id, step=step)
         feat_map = process_list(pc_list, self.get_features)
 
-        if self.dataset == 'kitti':
+        if self.dataset == 'kitti' or self.view == 'bev':
             gt_list = files_list[gt_key]
             gt = process_list(gt_list, self.load_kitti_gt)
         else:
@@ -193,7 +177,7 @@ class KITTIPointCloud:
         pc_files = dataset['pc']
         max_id = len(pc_files) if max_id == -1 else min(max_id, len(pc_files))
         pc_list = load_pc(pc_files[min_id:max_id:step])
-
+        pc_list = process_list(pc_list, filter_points, **{'height_range': (-4, 4)})
         if self.is_training and self.dataset != 'kitti':
             label_files = dataset['labels']
             labels = process_list(label_files[min_id:max_id:step], load_label_file)
@@ -204,7 +188,7 @@ class KITTIPointCloud:
         if self.subsample_ratio > 1:
             pc_list = process_list(pc_list, subsample_pc, sub_ratio=self.subsample_ratio)
 
-        if self.dataset == 'kitti':
+        if self.dataset == 'kitti' or self.view=='bev':
             pc_list = process_list(pc_list, filter_points, **{'side_range': self.side_range, 'fwd_range': self.fwd_range})
 
         return pc_list
@@ -226,6 +210,13 @@ class KITTIPointCloud:
         feat = None
         if self.compute_classic:
             feat = self.get_classical_features(point_cloud)
+
+        if self.compute_z:
+            feat = self.get_classical_features(point_cloud)
+            if self.view == 'bev':
+                feat = feat[:, :, -4:]
+            else:
+                feat = feat[:, :, -1]
 
         if self.add_geometrical_features:
             if self.view == 'bev':
@@ -284,7 +275,7 @@ class KITTIPointCloud:
 
         norm_z_lidar = z.copy()
         norm_z_lidar = (norm_z_lidar - self.z_min) / (self.z_max - self.z_min)
-
+        # norm_z_lidar = (norm_z_lidar - z.mean() ) / z.std()
         if self.view == 'bev':
             features = np.c_[np.ones_like(norm_z_lidar),  # to compute o_count
                              r,  # to compute o_mean_reflectance
