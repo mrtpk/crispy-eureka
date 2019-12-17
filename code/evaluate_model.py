@@ -187,6 +187,9 @@ class Experiment:
         if 'geometric' in self.test_name:
             geometric = True
             n_channels += 3
+        if 'height' in self.test_name:
+            height = True
+            n_channels += 4 if self.view == 'bev' else 1
 
         hog = False
         if 'hog' in self.test_name:
