@@ -80,7 +80,7 @@ def generate_features_map(config_run):
         RESCALE_VALUES['COUNT_MAX'] = kpc.COUNT_MAX
 
     # compute the maps from the dataset
-    split_size = 200 # todo parametrize this parameter
+    split_size = 300 if dataset == 'kitti' else 200 # todo parametrize this parameter
 
     n_sample_train = len(kpc.train_set['pc'])
     # before running feature generator we verify if path exists and if we need we generate it
