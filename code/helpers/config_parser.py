@@ -140,7 +140,7 @@ class JSONRunConfig:
         """
         features = self.config_run.get('features')
         test_name = 'Classical' if features['compute_classic'] else ''
-        test_name = 'Height' if features['compute_z'] else ''
+        test_name += 'Height' if features['compute_z'] else ''
         test_name += '_Geometric' if features['add_geometrical_features'] else ''
         test_name += '_Eigen' if features['compute_eigen'] else ''
 
