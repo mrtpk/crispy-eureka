@@ -15,6 +15,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import pyvista as pv
+from pyntcloud import PyntCloud
+
 # %matplotlib qt # for process_stream
 import cv2
 
@@ -321,3 +324,53 @@ def plot_Xy(X, y, alpha=0.5):
     plt.imshow(X[:, :,  6:], alpha=alpha)
     plt.imshow(y[:, :, 0], alpha=alpha)
     plt.show()
+
+
+def color_cloud_by_confront(cloud, y_true, y_pred):
+    """
+    Function that color the point cloud according to the ground truth and prediction
+    True positive are colored in green
+    False positive are colored in red
+    False negative are colored in blue
+
+    Parameters
+    ----------
+    cloud: PyntCloud
+        pyntcloud point cloud
+
+    y_true: ndarray
+        boolean ground truth array
+
+    y_pred: ndarray
+        boolean prediction array
+    """
+    cloud.points['y_true'] = y_true
+    cloud.points['y_pred'] = y_pred
+    # true positive
+    tp = np.logical_and(cloud.points['y_true'], cloud.points['y_pred'])
+    # false positive
+    fp = np.logical_and(1 - cloud.points['road'], cloud.points['y_pred'])
+    # false negative
+    fn = np.logical_and(cloud.points['road'], 1 - cloud.points['y_pred'])
+    cloud.points['red'] = 255*fp
+    cloud.points['green'] = 255 * tp
+    cloud.points['blue'] = 255 * fn
+
+    return cloud
+
+
+def plot_point_cloud(cloud):
+    """
+    Function that plot a point cloud
+
+    Parameters
+    ----------
+    cloud: Pyntcloud
+    """
+    plotter = pv.BackgroundPlotter()
+    mesh = pv.PolyData(cloud.xyz)
+    columns = list(cloud.points)
+    if 'red' in columns and 'green' in columns and 'blue' in columns:
+        mesh['colors'] = np.array([cloud.points['red'], cloud.points['green'], cloud.points['blue']]).T
+
+    pc = plotter.add_mesh(mesh, rgb=True, point_size=2)
