@@ -6,6 +6,7 @@
 # get_image : load the image specified in path
 
 import random
+import h5py
 import numpy as np
 import pandas as pd
 import cv2
@@ -16,6 +17,7 @@ import yaml
 from pyntcloud import PyntCloud
 from tqdm import tqdm
 import multiprocessing as mp
+from .pointcloud import filter_points
 # from . import calibration # from helpers.calibration import Calibration
 # from joblib import Memory
 # cachedir = 'cachedir/'
@@ -251,6 +253,44 @@ def process_list(pc_list, func, **kwargs):
     pool.close()
     return result
 
+
+def process_iter(iterable, func, **kwargs):
+    """
+    This is an auxiliary function to call func over an iterable of any objects in multiprocess.
+    Basically each element of the iterable needs to contains the parameters for the function.
+    All the parameters of the function that remains constant for all the elements in the iterable can passed through
+    the dict kwargs and they will be fixed at the beginning of the call.
+    Basically this is a generalization of the process_list function above to the case of multi parameters to treat.
+
+    Parameters
+    ----------
+    iterable: iter
+        iterable of parameters to treat
+
+    func: function
+        function to call
+
+    kwargs: dict
+        dictionary of fixed elements in the call
+
+    Return
+    ------
+    results: list
+        list containing the results of the function func to each element in iter
+    """
+
+    nCPU = mp.cpu_count()
+    print('nCPUs = ' + repr(nCPU))
+    pool = mp.Pool(processes=nCPU)
+    from functools import partial
+    if len(kwargs):
+        func = partial(func, **kwargs)
+    func = partial(func, **kwargs)
+    result = pool.starmap(func, iterable)
+    pool.close()
+
+    return result
+
 def load_pc(paths):
     '''
     Process point cloud from KITTI dataset using given function
@@ -270,6 +310,34 @@ def load_img(paths):
         img = get_image(path, is_color=True, rgb=False)
         result.append(img)
     return result
+
+def load_h5_file(path, variables=None):
+    """
+    Function that loads h5 file from disk
+
+    Parameters
+    ----------
+    path: str
+        path to the h5 file
+
+    variables: slice
+        slice or list of index to use to select only a given number of channels in the output array
+
+    Returns
+    -------
+    data: ndarray
+        loaded array
+
+    """
+    with h5py.File(path, 'r') as hf:
+        data = np.array(hf["array"])
+
+    hf.close()
+
+    if variables is not None:
+        return data[..., variables]
+    else:
+        return data
 
 def process_img(paths, func):
     '''
@@ -302,6 +370,23 @@ def normalize(a, min, max, scale_min=0, scale_max=255, dtype=np.uint8):
     return (scale_min + (((a - min) / float(max - min)) * (scale_max-scale_min))).astype(dtype)
 
 def load_pyntcloud(filename, add_label=False, instances=False):
+    """
+    Parameters
+    ----------
+    filename: str
+        path to pointcloud to read
+
+    add_label: bool
+        if True it adds also label to point cloud
+
+    instances: bool
+        if True it add also instances labels to point cloud
+
+    Returns
+    -------
+    cloud: PyntCloud
+        output pointcloud
+    """
     points = load_bin_file(filename)
     cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
     if add_label:
@@ -333,3 +418,88 @@ def load_semantic_kitti_config(filename=""):
         config = yaml.safe_load(f)
 
     return config
+
+
+def load_filter_cloud(path, side_range=(-10, 10), fwd_range=(6, 46), height_range=(-4, 4), add_label=True, add_layers=False):
+    """
+
+    """
+    cloud = load_pyntcloud(path, add_label=add_label)
+    if add_layers:
+        layers = extract_layers(cloud.xyz)
+        cloud.points['layers'] = layers
+
+    filt_points = filter_points(points=cloud.points.values, side_range=side_range, fwd_range=fwd_range,
+                                height_range=height_range)
+
+    filt_cloud = PyntCloud(pd.DataFrame(filt_points, columns=list(cloud.points)))
+
+    if 'labels' in list(filt_cloud.points):
+        road_labels = filt_cloud.points['labels'] == 40
+        filt_cloud.points['road'] = road_labels
+
+    return filt_cloud
+
+
+def extract_layers(points, max_layers=64):
+    """
+    Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
+    And each layer is stocked in a clockwise (or anticlockwise) fashion.
+
+    """
+    from skimage.morphology import opening, rectangle
+    x = points[:, 0]
+    y = points[:, 1]
+
+    # compute the theta angles
+    thetas = np.arctan2(y, x)
+    op_thetas = opening(thetas.reshape(-1, 1), rectangle(20, 1))
+    thetas = op_thetas.flatten()
+    idx = np.ones(len(thetas))
+
+    idx_pos = idx.copy()
+    idx_pos[thetas < 0] = 0
+
+    # since each layer is stocked in a clockwise fashion each time we do a 2*pi angle we can change layer
+    # so we identify each time we do a round
+    changes = np.arange(len(thetas) - 1)[np.ediff1d(idx_pos) == 1]
+    changes += 1  # we add one for indexes reason
+
+    # Stocking intervals. Each element of intervals contains min index and max index of points in the same layer
+    intervals = []
+    for i in range(len(changes)):
+        if i == 0:
+            intervals.append([0, changes[i]])
+        else:
+            intervals.append([changes[i - 1], changes[i]])
+
+    intervals.append([changes[-1], len(thetas)])
+
+    # check if we have retrieved all the layers
+    if len(intervals) < max_layers:
+        el = intervals.pop(0)
+        # in case not we are going to explore again the vector of thetas on the initial part
+        thex = np.copy(thetas[:el[1]])
+        # we compute again the diffs between consecutive angles and we mark each time we have a negative difference
+        diffs = np.ediff1d(thex)
+        idx = diffs < 0
+        ints = np.arange(len(idx))[idx]
+        # the negative differences mark the end of a layer and the beginning of another
+        new_intervals = []
+        max_new_ints = min(len(ints), max_layers - len(intervals))
+        for i in range(max_new_ints):
+            if i == 0:
+                new_intervals.append([0, ints[i]])
+            elif i == max_new_ints - 1:
+                new_intervals.append([ints[i], el[1]])
+            else:
+                new_intervals.append([ints[i], ints[i + 1]])
+        intervals = new_intervals + intervals
+
+    # for each element in interval we assign a label that identifies the layer
+    layers = np.zeros(len(thetas), dtype=np.uint8)
+
+    for n, el in enumerate(intervals[::-1]):
+        layers[el[0]:el[1]] = max_layers - (n + 1)
+
+    return layers
