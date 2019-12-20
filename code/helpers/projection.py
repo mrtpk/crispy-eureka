@@ -89,16 +89,23 @@ class BEVProjector(AbstractProjector):
         # MAPPING
         # Mappings from one point to grid
         # CONVERT TO PIXEL POSITION VALUES - Based on resolution(grid size)
-        j_img_mapping = (-y / self.res).astype(np.int32)  # x axis is -y in LIDAR
-        i_img_mapping = (x / self.res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
-
-        # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
-        # floor used to prevent issues with -ve vals rounding upwards
-        j_img_mapping -= int(np.floor(self.side_range[0] / self.res))
-        i_img_mapping -= int(np.floor(self.fwd_range[0] / self.res))
+        # j_img_mapping = (-y / self.res).astype(np.int32)  # x axis is -y in LIDAR
+        # i_img_mapping = (x / self.res).astype(np.int32)  # y axis is -x in LIDAR; will be inverted later
+        #
+        # # SHIFT PIXELS TO HAVE MINIMUM BE (0,0)
+        # # floor used to prevent issues with -ve vals rounding upwards
+        # j_img_mapping -= int(np.floor(self.side_range[0] / self.res))
+        # i_img_mapping -= int(np.floor(self.fwd_range[0] / self.res))
 
         # Linerize the mappings to 1D
-        lidx = ((-i_img_mapping) % self.proj_H) * self.proj_W + j_img_mapping
+        # lidx = ((-i_img_mapping) % self.proj_H) * self.proj_W + j_img_mapping
+        i_img_mapping = (self.fwd_range[1] - x)
+        j_img_mapping = (self.side_range[1] - y)
+
+        i_img_mapping = np.floor(i_img_mapping / self.res).astype(int)
+        j_img_mapping = np.floor(j_img_mapping / self.res).astype(int)
+
+        lidx = ((i_img_mapping) % self.proj_H) * self.proj_W + j_img_mapping
 
         return lidx, i_img_mapping, j_img_mapping
 
@@ -488,3 +495,83 @@ class Projection:
             return values.flatten()
 
         return values
+
+
+def back_proj_bev_pred(cloud, pred, proj):
+    z = cloud.xyz[:, 2]
+
+    z_min_img = proj.project_points_values(cloud.xyz, z, aggregate_func='min')
+
+    lidx, i_mapping, j_mapping = proj.projector.project_point(cloud.xyz)
+
+    labels = np.zeros_like(z)
+    gt_flat = pred.flatten()
+    z_img_fl = z_min_img.flatten()
+
+    neighs = cloud.get_neighbors(r=0.5)
+    for n in range(len(cloud.xyz)):
+        if np.abs(z_img_fl[lidx[n]] - z[n]) < 0.15:
+            local_neighs = neighs[n]
+            if len(local_neighs) < 5:
+                continue
+
+            est_z = z[local_neighs].mean()
+            if np.abs(est_z - z[n]) < 0.10:
+                labels[n] = gt_flat[lidx[n]]
+
+    return labels
+
+
+def back_proj_front_pred(cloud, pred, proj, inference='regression'):
+    """
+    Parameters
+    ----------
+    cloud: Pyntcloud
+
+    pred: ndarray
+
+    proj: Projection
+
+    inference: optional {'regression', 'classification'}
+    """
+    from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+    layers = cloud.points['layers'].astype(int)
+
+    # project gt
+    acc_img = proj.project_points_values(cloud.xyz, np.ones_like(layers), aggregate_func='sum', layers=layers)
+
+    # back project gt
+    back_proj_acc_mask = proj.back_project(cloud.xyz, acc_img == 1, res_value=1, layers=layers)
+    back_proj_pred = proj.back_project(cloud.xyz, pred, res_value=1, layers=layers)
+
+    num_neighbors = 3
+    if inference == 'regression':
+        knn = KNeighborsRegressor(n_neighbors=num_neighbors, weights='uniform')
+    elif inference == 'classification':
+        knn = KNeighborsClassifier(n_neighbors=num_neighbors)
+    else:
+        raise ValueError('Inference value can only be "regression" or "classification". Passed value: {}'.format(inference))
+    X_train, y_train = cloud.xyz[back_proj_acc_mask == 1, :], back_proj_pred[back_proj_acc_mask == 1]
+    X_test = cloud.xyz[back_proj_acc_mask != 1, :]
+
+    knn.fit(X_train, y_train)
+    y_pred = knn.predict(X_test)
+    labels = np.zeros_like(back_proj_pred)
+    labels[back_proj_acc_mask == 1] = back_proj_pred[back_proj_acc_mask == 1]
+    labels[back_proj_acc_mask != 1] = y_pred
+
+    return labels
+
+def naive_back_proj_front_pred(cloud, pred, proj):
+    """
+    Parameters
+    ----------
+    cloud: Pyntcloud
+
+    pred: ndarray
+
+    proj: Projection
+    """
+    layers = cloud.points['layers'].astype(int)
+
+    return proj.back_project(cloud.xyz, pred, res_value=1, layers=layers)
