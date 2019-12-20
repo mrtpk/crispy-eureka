@@ -10,11 +10,12 @@ import data_loaders as dls
 from projection import Projection
 from tqdm import tqdm
 
-def retrieve_layers(points):
-    '''
+def retrieve_layers(points, max_layers=64):
+    """
     Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
     And each layer is stocked in a clockwise (or anticlockwise) fashion.
-    '''
+
+    """
     x = points[:, 0]
     y = points[:, 1]
 
@@ -42,11 +43,32 @@ def retrieve_layers(points):
 
     intervals.append([changes[-1], len(thetas)])
 
+    # check if we have retrieved all the layers
+    if len(intervals) < max_layers:
+        el = intervals.pop(0)
+        # in case not we are going to explore again the vector of thetas on the initial part
+        thex = np.copy(thetas[:el[1]])
+        # we compute again the diffs between consecutive angles and we mark each time we have a negative difference
+        diffs = np.ediff1d(thex)
+        idx = diffs < 0
+        ints = np.arange(len(idx))[idx]
+        # the negative differences mark the end of a layer and the beginning of another
+        new_intervals = []
+        max_new_ints = min(len(ints), max_layers - len(intervals))
+        for i in range(max_new_ints):
+            if i == 0:
+                new_intervals.append([0, ints[i]])
+            elif i == max_new_ints - 1:
+                new_intervals.append([ints[i], el[1]])
+            else:
+                new_intervals.append([ints[i], ints[i + 1]])
+        intervals = new_intervals + intervals
+
     # for each element in interval we assign a label that identifies the layer
     layers = np.zeros(len(thetas), dtype=np.uint8)
 
-    for n, el in enumerate(intervals):
-        layers[el[0]:el[1]] = n
+    for n, el in enumerate(intervals[::-1]):
+        layers[el[0]:el[1]] = max_layers - (n + 1)
 
     return layers
 
@@ -259,8 +281,9 @@ def project_gt_to_front(points, label_idx=-1):
     # retrieve labels
     labels = points[:, label_idx]
 
-    proj = Projection(proj_type='front', height=img_height, width=img_width)
-    labels_img = proj.project_points_values(points[:,:3], labels)
+    proj = Projection(proj_type='laser', height=img_height, width=img_width)
+    layers = retrieve_layers(points, max_layers=64)
+    labels_img = proj.project_points_values(points[:,:3], labels, aggregate_func='max', layers=layers)
     labels_img = closing(labels_img, square(3))
     gt_img[:, :, 2] = 255 * labels_img.astype(np.uint8)
 
