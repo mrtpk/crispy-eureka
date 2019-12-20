@@ -177,11 +177,11 @@ class KITTIPointCloud:
         pc_files = dataset['pc']
         max_id = len(pc_files) if max_id == -1 else min(max_id, len(pc_files))
         pc_list = load_pc(pc_files[min_id:max_id:step])
-        pc_list = process_list(pc_list, filter_points, **{'height_range': (-4, 4)})
         if self.is_training and self.dataset != 'kitti':
             label_files = dataset['labels']
             labels = process_list(label_files[min_id:max_id:step], load_label_file)
             pc_list = process_list(zip(pc_list, labels), add_labels)
+        pc_list = process_list(pc_list, filter_points, **{'height_range': (-4, 4)})
 
         pc_list = process_list(pc_list, add_layers)
 
