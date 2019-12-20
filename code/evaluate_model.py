@@ -6,7 +6,8 @@ import json
 from time import time
 from data import *
 import dl_models
-from helpers.data_loaders import get_semantic_kitti_dataset, get_dataset, load_pc, process_calib, load_img, process_list, process_img
+from helpers.data_loaders import get_semantic_kitti_dataset, get_dataset, load_pc, process_calib, load_img, process_list
+from helpers.data_loaders import load_filter_cloud, process_iter, process_img
 from helpers.timer import timer
 from helpers.viz import plot_confusion_matrix, ConfusionMatrix
 from sklearn.metrics import confusion_matrix, precision_recall_curve, average_precision_score
@@ -94,6 +95,7 @@ class Experiment:
 
     def __initialize_model(self):
         shape = (None, None, self.n_channels)
+        print(shape)
         if self.model_name == 'lodnn':
             model = dl_models.get_lodnn_model(shape=shape)
         elif self.model_name == 'unet':
@@ -102,7 +104,7 @@ class Experiment:
             else:
                 output_channels = 1
 
-            model = dl_models.get_unet_model(shape=shape, subsample_ratio=self.sampled_ratio, output_channels=output_channels)
+            model = dl_models.get_unet_model(shape=shape, subsample_ratio=self.sampled_ratio, output_channels=2)
         elif self.model_name == 'unet6':
             model = dl_models.u_net6(shape=shape,
                                      filters=512,
@@ -256,6 +258,70 @@ class Experiment:
         score = average_precision_score(gt_flatten, pred_flatten)
 
         return score
+
+
+def evaluate_experiments(path,
+                         weights,
+                         min_id=0,
+                         max_id=-1,
+                         step=1,
+                         model_name='lodnn',
+                         view='bev',
+                         dataset='kitti',
+                         sequences=None,
+                         bp_func=None,
+                         kittionsemkitti=False):
+    prec_scores = {}
+    recall_scores = {}
+    avg_prec = {}
+
+    for k in weights:
+        print(k)
+        if kittionsemkitti:
+            exp = Experiment(path, weights=weights[k], model_name=model_name, view=view,
+                             dataset='kitti', sequences=None)
+            exp.KPC.test_set = get_semantic_kitti_dataset(path, is_training=False, sequences=sequences, shuffle=True)
+        else:
+            exp = Experiment(path, weights=weights[k], model_name=model_name, view=view,
+                             dataset=dataset, sequences=sequences)
+        # load images
+        f_test, gt_test = exp.KPC.load_dataset(set_type='test', min_id=min_id, max_id=max_id, step=step)
+        print(f_test.shape, gt_test.shape)
+        print("Experiment {}. Features maps shape: {}, GT shape: {}".format(k, f_test.shape, gt_test.shape))
+        print("Running Prediction")
+        pred = exp.model.predict(f_test)
+        if bp_func is not None:
+            print("Loading 3D GT")
+            # load clouds and gt
+            kwargs = {} if view=='bev' else {'add_layers': True}
+            clouds = process_list(exp.KPC.test_set['pc'][min_id:max_id:step], load_filter_cloud, **kwargs)
+            y_true = np.concatenate([cloud.points['road'].values for cloud in clouds])
+            print("Backprojecting prediction to 3D")
+            # back project pred
+            proj = exp.KPC.proj if view=='bev' else exp.KPC.aux_proj
+            y_pred = process_iter(zip(clouds, pred[:, :, :, 0]), bp_func, proj=proj)
+            y_pred = np.concatenate(y_pred)
+            print("Computing Scores")
+            # evaluate 3D scores
+            avg_prec[k] = average_precision_score(y_true, y_pred)
+            prec, recall, _ = precision_recall_curve(y_true, y_pred)
+        else:
+            avg_prec[k] = exp.average_precision_score(gt_test, pred)
+            prec, recall = exp.precision_recall_curve(gt_test, pred)
+
+        prec_scores[k] = prec
+        recall_scores[k] = recall
+
+    # Create a list of tuples sorted by index 1 i.e. value field
+    listofTuples = sorted(avg_prec.items(), key=lambda x: x[1])
+
+    print("Ranking Exp by Accuracy")
+    # Iterate over the sorted sequence
+    for elem in listofTuples:
+        print(elem[0], " ::", elem[1])
+
+    return avg_prec, prec_scores, recall_scores
+
 
 def plot_prediction(gt, pred, n=-1, save_fig=False, filename=''):
     if n < 0:
