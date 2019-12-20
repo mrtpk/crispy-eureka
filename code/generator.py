@@ -1,23 +1,8 @@
 import os
-import h5py
 import numpy as np
-from itertools import cycle
-from random import shuffle
 import keras
 from glob import glob
-import random
-
-def load_h5_file(path, variables=None):
-
-    with h5py.File(path, 'r') as hf:
-        data = np.array(hf["array"])
-
-    hf.close()
-
-    if variables is not None:
-        return data[..., variables]
-    else:
-        return data
+from helpers.data_loaders import load_h5_file
 
 def generator_from_h5(basedir, variables=None, batch_size=5, jump_after=300):
 
