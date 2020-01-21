@@ -252,7 +252,7 @@ def project_gt_to_front(points, label_idx=-1):
 
     # todo: parametrize the following variables
     img_height = 64
-    img_width = 1024
+    img_width = 2048
     # res_planar = 300
     # img_width = np.ceil(np.pi * res_planar).astype(int)
 
