@@ -81,7 +81,7 @@ class KITTIPointCloud:
                 # self.aux_proj = Projection(proj_type='front', height=aux_height, width=1024)
 
         elif self.view == 'front':
-            self.proj_W = 1024 if self.dataset == 'kitti' else 2048
+            self.proj_W = 2048
             self.proj_H = 64 // self.subsample_ratio
 
             self.proj = Projection(proj_type='laser', height=self.proj_H, width=self.proj_W)
@@ -403,6 +403,8 @@ class KITTIPointCloud:
             img = cv2.imread(filename, -1)
             road = img[:, :, 0] / 255  # Road is encoded as 255 in the B plane
             non_road = 1 - road  # TODO: can we do this in training time?
+            if self.view == 'front':
+                return road[..., np.newaxis]
             return np.dstack([road, non_road])
 
     def load_semantickitti_gt(self, point_cloud, **kwargs):
