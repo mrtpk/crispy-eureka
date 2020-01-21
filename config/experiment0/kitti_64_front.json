@@ -17,6 +17,6 @@
     "epochs": 100,
     "optimizer": "keras.optimizers.Nadam"
   },
-  "shape": [64, 1024],
-  "output_channels": 2
+  "shape": [64, 2048],
+  "output_channels": 1
 }
