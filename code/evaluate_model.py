@@ -104,7 +104,7 @@ class Experiment:
             else:
                 output_channels = 1
 
-            model = dl_models.get_unet_model(shape=shape, subsample_ratio=self.sampled_ratio, output_channels=2)
+            model = dl_models.get_unet_model(shape=shape, subsample_ratio=self.sampled_ratio, output_channels=1)
         elif self.model_name == 'unet6':
             model = dl_models.u_net6(shape=shape,
                                      filters=512,
@@ -260,6 +260,53 @@ class Experiment:
         return score
 
 
+def evaluate_single_experiment(path,
+                               weights,
+                               min_id=0,
+                               max_id=-1,
+                               step=1,
+                               model_name='lodnn',
+                               view='bev',
+                               dataset='kitti',
+                               sequences=None,
+                               bp_func=None):
+    exp = Experiment(path, weights=weights, model_name=model_name, view=view, dataset=dataset, sequences=sequences)
+    # load images
+    f_test, gt_test = exp.KPC.load_dataset(set_type='test', min_id=min_id, max_id=max_id, step=step)
+    print(f_test.shape, gt_test.shape)
+    print("Experiment {}: Features maps shape: {}, GT shape: {}".format(exp.test_name, f_test.shape, gt_test.shape))
+    print("Running Prediction")
+    pred = exp.model.predict(f_test)
+    if bp_func is not None:
+        print("Loading 3D GT")
+        # load clouds and gt
+        kwargs = {} if view == 'bev' else {'add_layers': True}
+        clouds = process_list(exp.KPC.test_set['pc'][min_id:max_id:step], load_filter_cloud, **kwargs)
+        y_true = np.concatenate([cloud.points['road'].values for cloud in clouds])
+        print("Backprojecting prediction to 3D")
+        # back project pred
+        proj = exp.KPC.proj if view == 'bev' else exp.KPC.aux_proj
+        y_pred = process_iter(zip(clouds, pred[:, :, :, 0]), bp_func, proj=proj)
+        y_pred = np.concatenate(y_pred)
+        print("Computing Scores")
+        # evaluate 3D scores
+        avg_prec = average_precision_score(y_true, y_pred)
+        prec, recall, _ = precision_recall_curve(y_true, y_pred)
+    else:
+        avg_prec = exp.average_precision_score(gt_test, pred)
+        prec, recall = exp.precision_recall_curve(gt_test, pred)
+
+    print("Average Precision: ", avg_prec)
+    out = {}
+    out['avg_prec'] = avg_prec
+    out['precision'] = prec
+    out['recall'] = recall
+    out['f_test'] = f_test
+    out['prediction'] = pred
+    out['clouds'] = clouds
+    return out
+
+
 def evaluate_experiments(path,
                          weights,
                          min_id=0,
@@ -299,6 +346,7 @@ def evaluate_experiments(path,
             print("Backprojecting prediction to 3D")
             # back project pred
             proj = exp.KPC.proj if view=='bev' else exp.KPC.aux_proj
+            print(proj.projector)
             y_pred = process_iter(zip(clouds, pred[:, :, :, 0]), bp_func, proj=proj)
             y_pred = np.concatenate(y_pred)
             print("Computing Scores")
