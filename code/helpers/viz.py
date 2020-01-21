@@ -359,7 +359,7 @@ def color_cloud_by_confront(cloud, y_true, y_pred):
     return cloud
 
 
-def plot_point_cloud(cloud):
+def plot_point_cloud(cloud,title):
     """
     Function that plot a point cloud
 
@@ -367,10 +367,68 @@ def plot_point_cloud(cloud):
     ----------
     cloud: Pyntcloud
     """
-    plotter = pv.BackgroundPlotter()
+    plotter = pv.BackgroundPlotter(title=title)
     mesh = pv.PolyData(cloud.xyz)
     columns = list(cloud.points)
     if 'red' in columns and 'green' in columns and 'blue' in columns:
         mesh['colors'] = np.array([cloud.points['red'], cloud.points['green'], cloud.points['blue']]).T
 
     pc = plotter.add_mesh(mesh, rgb=True, point_size=2)
+
+
+
+def plot_all_recall_curve(prec_scores, recall_scores, figsize=(12,12), xlim=None, ylim=None, title='', savefig=""):
+    if title == '':
+        title = 'Precision-Recall curve'
+
+    if xlim is None:
+        xlim = [0.75, 1.0]
+
+    if ylim is None:
+        ylim = [0.75, 1.0]
+    # In matplotlib < 1.5, plt.fill_between does not have a 'step' argument
+
+    plt.figure(figsize=figsize)
+    plt.style.use('ggplot')
+    legend_list = []
+    n_16 = 0
+    n_32 = 0
+    n_64 = 0
+    color_list = {'classical': 'b',
+                  'classical_geometric': 'g',
+                  'classical_eigen': 'r',
+                  'classical_geometric_eigen': 'c',
+                  'height_geometric': 'm'}
+
+    for k in prec_scores:
+        print(k)
+        # if 'eigen' in k or 'height' in k:
+        #     continue
+        color_key = k.replace('_subsampled_32', '').replace('_subsampled_16', '')
+
+        if '16' in k:
+            legend_list.append(k)
+            plt.step(prec_scores[k], recall_scores[k], linewidth=2, linestyle='--', color=color_list[color_key],
+                     alpha=0.8, where='post')
+            n_16 += 1
+
+        if '32' in k:
+            legend_list.append(k)
+            plt.step(prec_scores[k], recall_scores[k], linewidth=2, linestyle='-.', color=color_list[color_key],
+                     alpha=0.8, where='post')
+            n_32 += 1
+
+        if '16' not in k and '32' not in k:
+            legend_list.append(k)
+            plt.step(prec_scores[k], recall_scores[k], linewidth=2, linestyle='-', color=color_list[color_key],
+                     alpha=0.8, where='post')
+            n_64 += 1
+
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.ylim(ylim)
+    plt.xlim(xlim)
+    plt.title(title)
+    plt.legend(legend_list, loc=3)
+    if len(savefig):
+        plt.savefig(savefig, dpi=90)
