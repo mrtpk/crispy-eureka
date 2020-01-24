@@ -456,6 +456,15 @@ class SemanticKittiConfig:
         labels2id, id2label = self._remap_classes()
         self.labels2id = labels2id
         self.id2label = id2label
+        self.label2color = self._color_map()
+
+    def _color_map(self):
+        max_id = max(self.config['color_map'])
+        label2colors = np.zeros((max_id + 1, 3), dtype=np.uint8)
+        for k, v in self.config['color_map'].items():
+            label2colors[k] = v
+
+        return label2colors
 
     def _remap_classes(self):
         learning_map = self.config['learning_map']
