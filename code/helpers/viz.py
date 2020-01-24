@@ -377,7 +377,7 @@ def plot_point_cloud(cloud,title):
 
 
 
-def plot_all_recall_curve(prec_scores, recall_scores, figsize=(12,12), xlim=None, ylim=None, title='', savefig=""):
+def plot_all_recall_precision_curves(prec_scores, recall_scores, figsize=(12,12), xlim=None, ylim=None, title='', savefig=""):
     if title == '':
         title = 'Precision-Recall curve'
 
@@ -400,35 +400,56 @@ def plot_all_recall_curve(prec_scores, recall_scores, figsize=(12,12), xlim=None
                   'classical_geometric_eigen': 'c',
                   'height_geometric': 'm'}
 
-    for k in prec_scores:
+    legend_names = {'classical': 'Classic',
+                    'classical_geometric': 'Classic + Normals',
+                    'classical_eigen': 'Classic + Eigen',
+                    'classical_geometric_eigen': 'Classic + Normals + Eigen',
+                    'height_geometric': 'Height + Normals',
+                    'classical_subsampled_32': 'Classic (32)',
+                    'classical_geometric_subsampled_32': 'Classic + Normals (32)',
+                    'classical_eigen_subsampled_32': 'Classic + Eigen (32)',
+                    'classical_geometric_eigen_subsampled_32': 'Classic + Normals + Eigen (32)',
+                    'height_geometric_subsampled_32': 'Height + Normals (32)',
+                    'classical_subsampled_16': 'Classic (16)',
+                    'classical_geometric_subsampled_16': 'Classic + Normals (16)',
+                    'classical_eigen_subsampled_16': 'Classic + Eigen (16)',
+                    'classical_geometric_eigen_subsampled_16': 'Classic + Normals + Eigen (16)',
+                    'height_geometric_subsampled_16': 'Height + Normals (16)',
+                    }
+    keys = []
+    for k in legend_names:
+        if k in prec_scores:
+            keys.append(k)
+
+    for k in keys:
         print(k)
         # if 'eigen' in k or 'height' in k:
         #     continue
         color_key = k.replace('_subsampled_32', '').replace('_subsampled_16', '')
 
         if '16' in k:
-            legend_list.append(k)
+            legend_list.append(legend_names[k])
             plt.step(prec_scores[k], recall_scores[k], linewidth=2, linestyle='--', color=color_list[color_key],
                      alpha=0.8, where='post')
             n_16 += 1
 
         if '32' in k:
-            legend_list.append(k)
+            legend_list.append(legend_names[k])
             plt.step(prec_scores[k], recall_scores[k], linewidth=2, linestyle='-.', color=color_list[color_key],
                      alpha=0.8, where='post')
             n_32 += 1
 
         if '16' not in k and '32' not in k:
-            legend_list.append(k)
+            legend_list.append(legend_names[k])
             plt.step(prec_scores[k], recall_scores[k], linewidth=2, linestyle='-', color=color_list[color_key],
                      alpha=0.8, where='post')
             n_64 += 1
 
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
+    plt.xlabel('Recall', fontsize=22)
+    plt.ylabel('Precision', fontsize=22)
     plt.ylim(ylim)
     plt.xlim(xlim)
-    plt.title(title)
+    plt.title(title, fontsize=24)
     plt.legend(legend_list, loc=3)
     if len(savefig):
         plt.savefig(savefig, dpi=90)
