@@ -296,10 +296,10 @@ def yaw_derivative(img, pitch, yaw, res_rho):
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_az = _cos_pitch_grid((nr, nc), pitch)
-    sin_az = _sin_pitch_grid((nr, nc), pitch)
-    cos_pl = _cos_yaw_grid((nr, nc), yaw)
-    sin_pl = _sin_yaw_grid((nr, nc), yaw)
+    cos_pitch = _cos_pitch_grid((nr, nc), pitch)
+    sin_pitch = _sin_pitch_grid((nr, nc), pitch)
+    cos_yaw = _cos_yaw_grid((nr, nc), yaw)
+    sin_yaw = _sin_yaw_grid((nr, nc), yaw)
 
     rho = img.copy()
     rho = rho.astype(np.float64) / res_rho
@@ -314,11 +314,11 @@ def yaw_derivative(img, pitch, yaw, res_rho):
     _yaw_derivative_ = np.zeros((nr, nc, 3))
 
     # derivative along x
-    _yaw_derivative_[:, :, 0] = diff_rho * sin_az * cos_pl - rho * res_yaw * sin_az * sin_pl
+    _yaw_derivative_[:, :, 0] = diff_rho * sin_pitch * cos_yaw - rho * res_yaw * sin_pitch * sin_yaw
     # derivative along y
-    _yaw_derivative_[:, :, 1] = diff_rho * sin_az * sin_pl + rho * res_yaw * sin_az * cos_pl
+    _yaw_derivative_[:, :, 1] = diff_rho * sin_pitch * sin_yaw + rho * res_yaw * sin_pitch * cos_yaw
     # derivative along z
-    _yaw_derivative_[:, :, 2] = diff_rho * cos_az
+    _yaw_derivative_[:, :, 2] = diff_rho * cos_pitch
 
     return _yaw_derivative_
 
