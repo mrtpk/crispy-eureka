@@ -168,7 +168,8 @@ class KITTIPointCloud:
             gt_list = files_list[gt_key]
             gt = process_list(gt_list, self.load_kitti_gt)
         else:
-            gt = process_list(pc_list, self.load_semantickitti_gt, **gt_args)
+            mmax = len(files_list['pc']) if max_id == -1 else min(max_id, len(files_list['pc']))
+            gt = process_list(files_list['pc'][min_id:mmax:step], self.load_semantickitti_gt, **gt_args)
 
         return np.array(feat_map), np.array(gt)
 
@@ -177,10 +178,10 @@ class KITTIPointCloud:
         pc_files = dataset['pc']
         max_id = len(pc_files) if max_id == -1 else min(max_id, len(pc_files))
         pc_list = load_pc(pc_files[min_id:max_id:step])
-        if self.is_training and self.dataset != 'kitti':
-            label_files = dataset['labels']
-            labels = process_list(label_files[min_id:max_id:step], load_label_file)
-            pc_list = process_list(zip(pc_list, labels), add_labels)
+        # if self.dataset != 'kitti':
+        #     label_files = dataset['labels']
+        #     labels = process_list(label_files[min_id:max_id:step], load_label_file)
+        #     pc_list = process_list(zip(pc_list, labels), add_labels)
         pc_list = process_list(pc_list, filter_points, **{'height_range': (-4, 4)})
 
         pc_list = process_list(pc_list, add_layers)
@@ -407,7 +408,7 @@ class KITTIPointCloud:
                 return road[..., np.newaxis]
             return np.dstack([road, non_road])
 
-    def load_semantickitti_gt(self, point_cloud, **kwargs):
+    def load_semantickitti_gt(self, pointfile, **kwargs):
         """
         Function that load the ground truth image and return the one-hot encoded ground truth image
 
@@ -421,11 +422,11 @@ class KITTIPointCloud:
 
         """
         # read a 16-bit image with opencv
-
-        points = point_cloud[:, :3]
-        labels = point_cloud[:, -2]
-        layers = point_cloud[:, -1]
-
+        labelfile = pointfile.replace('velodyne', 'labels').replace('.bin', '.label')
+        points = load_bin_file(pointfile)
+        labels = load_label_file(labelfile)
+        layers = retrieve_layers(points)
+        # print(labels)
         classes = kwargs.get('classes', None)
 
         if classes is not None:
