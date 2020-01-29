@@ -332,7 +332,10 @@ def evaluate_experiments(path,
             exp = Experiment(path, weights=weights[k], model_name=model_name, view=view,
                              dataset=dataset, sequences=sequences)
         # load images
-        f_test, gt_test = exp.KPC.load_dataset(set_type='test', min_id=min_id, max_id=max_id, step=step)
+        if dataset == 'kitti':
+            f_test, gt_test = exp.KPC.load_dataset(set_type='test', min_id=min_id, max_id=max_id, step=step)
+        else:
+            f_test, gt_test = exp.KPC.load_dataset(set_type='test', min_id=min_id, max_id=max_id, step=step, classes=['40'])
         print(f_test.shape, gt_test.shape)
         print("Experiment {}. Features maps shape: {}, GT shape: {}".format(k, f_test.shape, gt_test.shape))
         print("Running Prediction")
