@@ -450,6 +450,6 @@ def plot_all_recall_precision_curves(prec_scores, recall_scores, figsize=(12,12)
     plt.ylim(ylim)
     plt.xlim(xlim)
     plt.title(title, fontsize=24)
-    plt.legend(legend_list, loc=3)
+    plt.legend(legend_list, loc=3, prop={'size': 18})
     if len(savefig):
         plt.savefig(savefig, dpi=90)
